@@ -1,0 +1,2 @@
+# TC3-Triagem-de-Laudos-Medicos-com-FastAPI-Docker-Airflow-Prometheus-Grafana-e-ONNX
+Pipeline de MLOps para triagem automática de laudos médicos (classificação de urgência via NLP), com API de inferência em FastAPI containerizada em Docker, CI/CD via GitHub Actions, orquestração de retreino com Airflow, stack de observabilidade com Prometheus e Grafana, e otimização de latência via exportação para ONNX Runtime.
