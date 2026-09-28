@@ -1,5 +1,7 @@
 # TC3 — Triagem de Laudos Médicos com FastAPI, Docker, Airflow, Prometheus/Grafana e ONNX
 
+[![CI](https://github.com/Plee47/TC3-Triagem-de-Laudos-Medicos-com-FastAPI-Docker-Airflow-Prometheus-Grafana-e-ONNX/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Plee47/TC3-Triagem-de-Laudos-Medicos-com-FastAPI-Docker-Airflow-Prometheus-Grafana-e-ONNX/actions/workflows/ci.yml)
+
 Pipeline de MLOps para triagem automática de laudos médicos: um classificador de texto leve (TF-IDF + Regressão Logística) define a condição do laudo e a traduz em urgência (**normal / atenção / urgente**). O modelo é servido por uma API FastAPI em Docker, com CI/CD no GitHub Actions, retreino orquestrado pelo Airflow, observabilidade com Prometheus + Grafana e otimização de latência via ONNX Runtime.
 
 > Status: **Etapas 1 e 2 concluídas** (dados, modelo, API em Docker, baseline de latência, CI/CD e DAG de retreino). Etapas 3 e 4 em andamento.
