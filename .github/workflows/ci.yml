@@ -82,6 +82,7 @@ jobs:
           poetry run python -m medical_triage.data.ingest
           poetry run python -m medical_triage.data.preprocess
           poetry run python -m medical_triage.models.train
+          poetry run python -m medical_triage.models.export_onnx
       - name: Quality gate do modelo
         run: |
           poetry run python - <<'PY'
@@ -93,14 +94,18 @@ jobs:
           PY
       - name: Build da imagem
         run: docker build -t medical-triage:${{ github.sha }} .
-      - name: Smoke test do container
+      - name: Smoke test do container (sklearn e ONNX)
         run: |
-          docker run -d --name api -p 8080:8000 medical-triage:${{ github.sha }}
-          for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 2; done
-          curl -sf localhost:8080/health | grep -q '"model_loaded":true'
-          curl -sf -X POST localhost:8080/predict -H 'Content-Type: application/json' \
-            -d '{"text":"Acute myocardial infarction and coronary artery disease"}' | tee /dev/stderr \
-            | grep -q '"urgency":"urgente"'
+          for backend in sklearn onnx; do
+            docker rm -f api >/dev/null 2>&1 || true
+            docker run -d --name api -e MODEL_BACKEND=$backend -p 8080:8000 medical-triage:${{ github.sha }}
+            for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 2; done
+            curl -sf localhost:8080/health | grep -q "\"model_backend\":\"$backend\""
+            curl -sf localhost:8080/health | grep -q '"model_loaded":true'
+            curl -sf -X POST localhost:8080/predict -H 'Content-Type: application/json' \
+              -d '{"text":"Acute myocardial infarction and coronary artery disease"}' | tee /dev/stderr \
+              | grep -q '"urgency":"urgente"'
+          done
       - name: Logs do container (em caso de falha)
         if: failure()
         run: docker logs api || true
