@@ -1,0 +1,16 @@
+seed: 42
+
+data:
+  base_url: https://raw.githubusercontent.com/sebischair/Medical-Abstracts-TC-Corpus/main
+  files: [medical_tc_train.csv, medical_tc_test.csv, medical_tc_labels.csv]
+  validation_size: 0.15
+
+tfidf:
+  ngram_max: 2
+  max_features: 50000
+  min_df: 2
+  sublinear_tf: true
+
+model:
+  C: 1.0
+  max_iter: 2000

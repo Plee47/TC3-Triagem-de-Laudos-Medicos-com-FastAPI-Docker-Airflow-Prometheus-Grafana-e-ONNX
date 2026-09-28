@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Ambientes
+.venv/
+venv/
+.env
+
+# Dados e artefatos (gerados pela ingestao / DAG de treino)
+data/raw/*.csv
+data/processed/
+models/*.joblib
+models/*.onnx
+models/metrics.json
+
+# Airflow local
+airflow/logs/
+airflow/*.db
+airflow/*.cfg
+
+# Tooling
+.vscode/
+.idea/
+.claude/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db

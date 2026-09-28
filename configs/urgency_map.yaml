@@ -1,0 +1,8 @@
+# Mapeamento classe do corpus -> urgencia de triagem.
+# Premissa de negocio do projeto (nao e criterio clinico validado).
+labels:
+  1: {condition: neoplasms, urgency: atencao}
+  2: {condition: digestive_system_diseases, urgency: normal}
+  3: {condition: nervous_system_diseases, urgency: urgente}
+  4: {condition: cardiovascular_diseases, urgency: urgente}
+  5: {condition: general_pathological_conditions, urgency: normal}
