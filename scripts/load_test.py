@@ -83,6 +83,8 @@ def main() -> None:
 
     valid = [(ms, status) for ms, status, invalid in results if not invalid]
     latencies = [ms for ms, status in valid if status == 200]
+    if len(latencies) < 2:
+        raise SystemExit(f"Poucas respostas 200 ({len(latencies)}) para calcular latencia")
     summary = {
         "requests": args.n,
         "concurrency": args.c,
