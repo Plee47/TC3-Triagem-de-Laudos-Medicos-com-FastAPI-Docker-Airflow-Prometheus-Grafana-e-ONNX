@@ -13,7 +13,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, f1_score, recall_score
 from sklearn.pipeline import Pipeline
 
-from medical_triage.config import METRICS_FILE, SKLEARN_MODEL_FILE, get_settings, load_params
+from medical_triage.config import (
+    METRICS_FILE,
+    ONNX_MODEL_FILE,
+    SKLEARN_MODEL_FILE,
+    get_settings,
+    load_params,
+)
 from medical_triage.data.ingest import LABEL_COL, TEXT_COL
 from medical_triage.triage import to_urgency
 
@@ -107,6 +113,8 @@ def run(output_dir: Path | None = None) -> dict[str, Any]:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, output_dir / SKLEARN_MODEL_FILE)
+    # o ONNX anterior nao corresponde mais ao modelo novo; export_onnx o recria
+    (output_dir / ONNX_MODEL_FILE).unlink(missing_ok=True)
     (output_dir / METRICS_FILE).write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     logger.info(
         "Modelo salvo em %s | test macro_f1=%.3f urgente_recall=%.3f",

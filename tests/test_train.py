@@ -30,11 +30,14 @@ def test_run_writes_artifacts_to_output_dir(tmp_path, tiny_df, test_params, monk
     get_settings.cache_clear()
 
     out = tmp_path / "candidate"
+    out.mkdir()
+    (out / "model.onnx").write_bytes(b"modelo antigo")
     metrics = train_mod.run(output_dir=out)
     get_settings.cache_clear()
 
     assert (out / "model.joblib").exists()
     assert (out / "metrics.json").exists()
+    assert not (out / "model.onnx").exists()  # ONNX antigo nao sobrevive ao retreino
     assert metrics["test"]["macro_f1"] > 0.9
 
 
