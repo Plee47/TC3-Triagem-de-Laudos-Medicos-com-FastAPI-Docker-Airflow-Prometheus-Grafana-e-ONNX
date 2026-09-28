@@ -15,6 +15,8 @@ from medical_triage.config import METRICS_FILE
 
 logger = logging.getLogger(__name__)
 
+ARCHIVE_KEEP = 5
+
 
 def read_metrics(model_dir: Path) -> dict[str, Any] | None:
     path = model_dir / METRICS_FILE
@@ -42,6 +44,17 @@ def quality_gate(
     return failures
 
 
+def prune_archive(archive_root: Path, keep: int = ARCHIVE_KEEP) -> list[Path]:
+    """Mantem so as `keep` versoes arquivadas mais recentes (nomes sao timestamps)."""
+    if not archive_root.exists():
+        return []
+    versions = sorted(p for p in archive_root.iterdir() if p.is_dir())
+    removed = versions[:-keep] if keep else versions
+    for path in removed:
+        shutil.rmtree(path)
+    return removed
+
+
 def promote(candidate_dir: Path, prod_dir: Path) -> list[Path]:
     """Copia os artefatos do candidato para producao, arquivando os anteriores."""
     artifacts = [p for p in candidate_dir.iterdir() if p.is_file()]
@@ -61,5 +74,6 @@ def promote(candidate_dir: Path, prod_dir: Path) -> list[Path]:
         shutil.copy2(src, tmp)
         tmp.replace(dst)
         promoted.append(dst)
+    prune_archive(prod_dir / "archive")
     logger.info("Promovidos %s para %s", [p.name for p in promoted], prod_dir)
     return promoted

@@ -53,3 +53,13 @@ def test_promote_empty_candidate_fails(tmp_path):
 
 def test_read_metrics_missing_returns_none(tmp_path):
     assert read_metrics(tmp_path) is None
+
+
+def test_prune_archive_keeps_most_recent(tmp_path):
+    from medical_triage.models.registry import prune_archive
+
+    for stamp in ("20260101T000000Z", "20260102T000000Z", "20260103T000000Z"):
+        (tmp_path / stamp).mkdir()
+    removed = prune_archive(tmp_path, keep=2)
+    assert [p.name for p in removed] == ["20260101T000000Z"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["20260102T000000Z", "20260103T000000Z"]
