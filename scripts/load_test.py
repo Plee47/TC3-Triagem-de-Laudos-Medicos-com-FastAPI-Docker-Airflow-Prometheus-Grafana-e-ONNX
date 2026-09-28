@@ -1,6 +1,10 @@
 """Gera carga na API e mede latencia ponta a ponta (baseline / Grafana).
 
 Uso: python scripts/load_test.py --url http://localhost:8080 -n 500 -c 4
+     python scripts/load_test.py -n 3000 -c 2 --rate 10 --invalid-ratio 0.05   # trafego p/ Grafana
+
+--invalid-ratio envia essa fracao de requisicoes com texto vazio (422 esperado),
+para exercitar os paineis de erro. Elas ficam fora das estatisticas de latencia.
 """
 
 import argparse
@@ -50,6 +54,8 @@ def main() -> None:
     parser.add_argument("-n", type=int, default=500, help="numero de requisicoes")
     parser.add_argument("-c", type=int, default=1, help="concorrencia")
     parser.add_argument("--warmup", type=int, default=20)
+    parser.add_argument("--rate", type=float, help="limita a taxa total (req/s)")
+    parser.add_argument("--invalid-ratio", type=float, default=0.0)
     parser.add_argument("--out", type=Path, help="salva o resumo em JSON")
     args = parser.parse_args()
 
@@ -59,17 +65,29 @@ def main() -> None:
             raise SystemExit(f"API nao respondeu 200 em {args.url}/predict (status={status})")
 
     samples = load_samples(args.n)
+    invalid_every = round(1 / args.invalid_ratio) if args.invalid_ratio > 0 else 0
+    if invalid_every:
+        samples = ["" if i % invalid_every == 0 else t for i, t in enumerate(samples)]
+    pause = args.c / args.rate if args.rate else 0.0
+
+    def send(text: str) -> tuple[float, int, bool]:
+        if pause:
+            time.sleep(pause)
+        ms, status = post(args.url, text)
+        return ms, status, text == ""
+
     start = time.perf_counter()
     with ThreadPoolExecutor(max_workers=args.c) as pool:
-        results = list(pool.map(lambda t: post(args.url, t), samples))
+        results = list(pool.map(send, samples))
     elapsed = time.perf_counter() - start
 
-    latencies = [ms for ms, status in results if status == 200]
-    errors = len(results) - len(latencies)
+    valid = [(ms, status) for ms, status, invalid in results if not invalid]
+    latencies = [ms for ms, status in valid if status == 200]
     summary = {
         "requests": args.n,
         "concurrency": args.c,
-        "errors": errors,
+        "intentional_invalid": len(results) - len(valid),
+        "errors": len(valid) - len(latencies),
         "throughput_rps": round(args.n / elapsed, 1),
         "mean_ms": round(statistics.mean(latencies), 2),
         "p50_ms": round(percentile(latencies, 50), 2),
