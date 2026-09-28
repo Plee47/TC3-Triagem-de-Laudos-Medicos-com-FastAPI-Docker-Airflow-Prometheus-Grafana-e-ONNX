@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import joblib
@@ -12,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, f1_score, recall_score
 from sklearn.pipeline import Pipeline
 
-from medical_triage.config import get_settings, load_params
+from medical_triage.config import METRICS_FILE, SKLEARN_MODEL_FILE, get_settings, load_params
 from medical_triage.data.ingest import LABEL_COL, TEXT_COL
 from medical_triage.triage import to_urgency
 
@@ -70,8 +71,10 @@ def evaluate(pipeline: Pipeline, df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def run() -> dict[str, Any]:
+def run(output_dir: Path | None = None) -> dict[str, Any]:
+    """Treina e grava modelo + metricas em output_dir (padrao: MODEL_DIR)."""
     settings = get_settings()
+    output_dir = output_dir or settings.model_dir
     params = load_params()
     train_df = pd.read_csv(settings.processed_dir / "train.csv")
     val_df = pd.read_csv(settings.processed_dir / "val.csv")
@@ -85,12 +88,12 @@ def run() -> dict[str, Any]:
         "test": evaluate(pipeline, test_df),
     }
 
-    settings.model_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump(pipeline, settings.sklearn_model_path)
-    settings.metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(pipeline, output_dir / SKLEARN_MODEL_FILE)
+    (output_dir / METRICS_FILE).write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     logger.info(
         "Modelo salvo em %s | test macro_f1=%.3f urgente_recall=%.3f",
-        settings.sklearn_model_path,
+        output_dir,
         metrics["test"]["macro_f1"],
         metrics["test"]["urgente_recall"],
     )

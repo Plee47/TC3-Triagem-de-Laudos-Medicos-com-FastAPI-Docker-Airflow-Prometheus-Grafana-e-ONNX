@@ -16,11 +16,8 @@ data/processed/
 models/*.joblib
 models/*.onnx
 models/metrics.json
-
-# Airflow local
-airflow/logs/
-airflow/*.db
-airflow/*.cfg
+models/candidate/
+models/archive/
 
 # Tooling
 .vscode/

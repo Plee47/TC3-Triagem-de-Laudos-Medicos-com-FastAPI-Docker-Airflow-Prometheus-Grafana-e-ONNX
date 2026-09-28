@@ -6,6 +6,7 @@ from typing import Protocol
 import joblib
 import numpy as np
 
+from medical_triage.config import SKLEARN_MODEL_FILE
 from medical_triage.data.preprocess import clean_text
 
 
@@ -29,5 +30,5 @@ class SklearnPredictor:
 
 def load_predictor(backend: str, model_dir: Path) -> Predictor:
     if backend == "sklearn":
-        return SklearnPredictor(model_dir / "model.joblib")
+        return SklearnPredictor(model_dir / SKLEARN_MODEL_FILE)
     raise ValueError(f"Backend nao suportado: {backend}")

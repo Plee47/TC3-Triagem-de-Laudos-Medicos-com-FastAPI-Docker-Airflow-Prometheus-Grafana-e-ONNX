@@ -15,3 +15,24 @@ def test_sklearn_predictor_returns_probabilities(model_dir):
     assert proba.shape == (1, 5)
     assert abs(proba.sum() - 1.0) < 1e-6
     assert int(predictor.classes[proba.argmax()]) == 4
+
+
+def test_run_writes_artifacts_to_output_dir(tmp_path, tiny_df, test_params, monkeypatch):
+    from medical_triage.config import get_settings
+    from medical_triage.models import train as train_mod
+
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True)
+    for name in ("train", "val", "test"):
+        tiny_df.to_csv(processed / f"{name}.csv", index=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(train_mod, "load_params", lambda: test_params)
+    get_settings.cache_clear()
+
+    out = tmp_path / "candidate"
+    metrics = train_mod.run(output_dir=out)
+    get_settings.cache_clear()
+
+    assert (out / "model.joblib").exists()
+    assert (out / "metrics.json").exists()
+    assert metrics["test"]["macro_f1"] > 0.9

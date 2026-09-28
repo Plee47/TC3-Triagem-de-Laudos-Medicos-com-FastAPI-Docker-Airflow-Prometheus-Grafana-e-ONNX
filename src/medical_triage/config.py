@@ -9,6 +9,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+SKLEARN_MODEL_FILE = "model.joblib"
+ONNX_MODEL_FILE = "model.onnx"
+METRICS_FILE = "metrics.json"
+
 
 class Settings(BaseSettings):
     """Settings lidas de variaveis de ambiente / .env."""
@@ -31,15 +35,20 @@ class Settings(BaseSettings):
 
     @property
     def sklearn_model_path(self) -> Path:
-        return self.model_dir / "model.joblib"
+        return self.model_dir / SKLEARN_MODEL_FILE
 
     @property
     def onnx_model_path(self) -> Path:
-        return self.model_dir / "model.onnx"
+        return self.model_dir / ONNX_MODEL_FILE
+
+    @property
+    def candidate_dir(self) -> Path:
+        """Onde o retreino grava o modelo antes do quality gate."""
+        return self.model_dir / "candidate"
 
     @property
     def metrics_path(self) -> Path:
-        return self.model_dir / "metrics.json"
+        return self.model_dir / METRICS_FILE
 
 
 @lru_cache
