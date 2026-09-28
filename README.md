@@ -2,13 +2,15 @@
 
 Pipeline de MLOps para triagem automática de laudos médicos: um classificador de texto leve (TF-IDF + Regressão Logística) define a condição do laudo e a traduz em urgência (**normal / atenção / urgente**). O modelo é servido por uma API FastAPI em Docker, com CI/CD no GitHub Actions, retreino orquestrado pelo Airflow, observabilidade com Prometheus + Grafana e otimização de latência via ONNX Runtime.
 
-> Status: **Etapa 1 concluída** (dados, modelo base, API em Docker e baseline de latência). Etapas 2–4 em andamento.
+> Status: **Etapas 1 e 2 concluídas** (dados, modelo, API em Docker, baseline de latência, CI/CD e DAG de retreino). Etapas 3 e 4 em andamento.
 
 ## Sumário
 - [Dataset e premissas](#dataset-e-premissas)
 - [Decisão arquitetural (nuvem)](#decisão-arquitetural-nuvem)
 - [Modelo e resultados](#modelo-e-resultados)
 - [Latência — baseline](#latência--baseline)
+- [CI/CD (GitHub Actions)](#cicd-github-actions)
+- [Retreino (Airflow)](#retreino-airflow)
 - [Como executar](#como-executar)
 - [API](#api)
 - [Estrutura do repositório](#estrutura-do-repositório)
@@ -89,6 +91,46 @@ API em container Docker local, backend **sklearn**, 1 worker uvicorn, amostras r
 
 Os resultados brutos estão em [`reports/`](reports/). A comparação com o modelo otimizado (ONNX) entra na Etapa 4.
 
+## CI/CD (GitHub Actions)
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda a cada push na `main` e a cada pull request:
+
+```
+lint ──┬──▶ test ─────────┬──▶ build
+       └──▶ dag-validate ─┘
+```
+
+| Job | O que faz |
+|---|---|
+| `lint` | `ruff check` e `ruff format --check` |
+| `test` | `pytest` com cobertura (dados, triagem, treino, registry, API) |
+| `dag-validate` | instala o Airflow 3.3.2 com as constraints oficiais, carrega a `DagBag` e confere as dependências entre as tasks |
+| `build` | baixa o dataset, treina, aplica o quality gate, faz o `docker build` e sobe o container para um smoke test de `/health` e `/predict` |
+
+## Retreino (Airflow)
+
+A DAG [`dags/medical_triage_retrain.py`](dags/medical_triage_retrain.py) roda toda semana (`@weekly`) ou quando é disparada manualmente:
+
+```
+ingest ──▶ preprocess ──▶ train_candidate ──▶ quality_gate ──▶ promote
+```
+
+- **ingest**: baixa o corpus e valida o formato (use o parâmetro `force_download` para baixar de novo).
+- **preprocess**: limpa o texto, resolve rótulos multi-condição, faz o split e remove o vazamento do teste.
+- **train_candidate**: treina em `models/candidate/`, sem mexer no modelo em produção.
+- **quality_gate**: aprova o candidato só se ele atingir macro-F1 ≥ 0,70 e recall de "urgente" ≥ 0,75 e não piorar o macro-F1 atual em mais de 0,02. Os limites ficam em [`params.yaml`](params.yaml). Se o candidato for reprovado, a task faz *short-circuit* e o `promote` fica como **skipped**.
+- **promote**: arquiva a versão atual em `models/archive/<timestamp>/` e troca os artefatos de forma atômica.
+
+As tasks só orquestram. Toda a lógica está em `medical_triage.*` e é testada sem precisar do Airflow.
+
+A DAG foi validada ponta a ponta no Airflow 3.3.2 em Docker. Uma execução completa leva cerca de 55 s e aprovou e promoveu o modelo (macro-F1 0,777). Com o limite elevado de propósito para 0,99, o gate reprovou o candidato e o `promote` ficou como skipped.
+
+```bash
+docker compose -f docker-compose.airflow.yml up -d --build
+# UI em http://localhost:8081 (login desabilitado, apenas para uso local)
+docker compose -f docker-compose.airflow.yml exec airflow airflow dags trigger medical_triage_retrain
+```
+
 ## Como executar
 
 Pré-requisitos: Python 3.11+, [Poetry](https://python-poetry.org/) 2.x e Docker.
@@ -153,9 +195,13 @@ src/medical_triage/
   data/preprocess.py   limpeza, resolução de rótulos, split, remoção de vazamento
   models/train.py      pipeline TF-IDF + LogReg, avaliação, persistência
   models/predictor.py  interface de inferência (sklearn; ONNX na Etapa 4)
+  models/registry.py   quality gate + promoção candidato → produção
   api/                 FastAPI (schemas + endpoints)
+dags/                  DAG de retreino do Airflow
+docker/airflow/        imagem do Airflow com as libs de ML fixadas no lock
+.github/workflows/     CI (lint, test, dag-validate, build)
 configs/urgency_map.yaml
-params.yaml
+params.yaml            hiperparâmetros + limites do quality gate
 scripts/load_test.py   carga e medição de latência
 tests/                 pytest (dados, triagem, treino, API)
 reports/               resultados de latência
