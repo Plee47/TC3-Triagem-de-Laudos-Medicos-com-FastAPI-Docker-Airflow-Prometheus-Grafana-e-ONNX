@@ -13,7 +13,7 @@ DAGS_DIR = Path(__file__).resolve().parents[1] / "dags"
 
 @pytest.fixture(scope="module")
 def dagbag() -> DagBag:
-    return DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
+    return DagBag(dag_folder=str(DAGS_DIR))
 
 
 def test_dag_imports_without_errors(dagbag):
