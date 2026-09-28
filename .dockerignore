@@ -6,7 +6,7 @@ tests
 notebooks
 reports
 dags
-airflow
+docker
 monitoring
 *.md
 !README.md

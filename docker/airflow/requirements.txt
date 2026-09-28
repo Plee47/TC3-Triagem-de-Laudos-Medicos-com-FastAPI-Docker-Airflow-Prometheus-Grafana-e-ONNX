@@ -1,0 +1,10 @@
+# Mesmas versoes do poetry.lock para o modelo treinado no Airflow ser
+# carregado sem incompatibilidade pela API.
+scikit-learn==1.9.1
+pandas==3.0.6
+joblib==1.6.0
+pyyaml==6.0.3
+pydantic-settings==2.15.0
+onnx==1.23.0
+onnxruntime==1.30.0
+skl2onnx==1.20.0

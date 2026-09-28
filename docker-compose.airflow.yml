@@ -1,0 +1,22 @@
+# Airflow local (standalone: scheduler + api-server + dag-processor + SQLite).
+# Uso: docker compose -f docker-compose.airflow.yml up --build
+# UI: http://localhost:8081  (login desabilitado apenas para uso local)
+services:
+  airflow:
+    build: ./docker/airflow
+    image: medical-triage-airflow:3.3.2
+    command: standalone
+    ports:
+      - "8081:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/project/dags
+      PYTHONPATH: /opt/project/src
+    volumes:
+      - ./dags:/opt/project/dags
+      - ./src:/opt/project/src
+      - ./configs:/opt/project/configs
+      - ./params.yaml:/opt/project/params.yaml
+      - ./data:/opt/project/data
+      - ./models:/opt/project/models
