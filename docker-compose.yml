@@ -1,0 +1,53 @@
+# Stack local: API de inferencia + Prometheus + Grafana.
+# Uso: docker compose up -d --build   (treine o modelo antes: ver README)
+#   API        http://localhost:8080/docs
+#   Prometheus http://localhost:9090
+#   Grafana    http://localhost:3000  (acesso anonimo so leitura; admin/admin)
+services:
+  api:
+    build: .
+    image: medical-triage:latest
+    ports:
+      - "8080:8000"
+    environment:
+      MODEL_BACKEND: ${MODEL_BACKEND:-sklearn}
+    volumes:
+      # modelo promovido pela DAG do Airflow; `docker compose restart api` recarrega
+      - ./models:/app/models:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/medical-triage.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
