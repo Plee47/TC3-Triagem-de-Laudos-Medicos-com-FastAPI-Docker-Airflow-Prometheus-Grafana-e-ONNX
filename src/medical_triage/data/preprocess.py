@@ -13,6 +13,7 @@ textos sao removidos do teste para a avaliacao nao ser inflada.
 
 import logging
 import re
+import unicodedata
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -27,7 +28,13 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def clean_text(text: str) -> str:
-    return _WHITESPACE.sub(" ", str(text)).strip()
+    r"""Colapsa espacos e translitera para ASCII.
+
+    ASCII garante que o tokenizer do ONNX ([a-zA-Z0-9_]) e o do sklearn (\w, que
+    aceita Unicode) vejam os mesmos tokens em laudos com acentos ou letras gregas.
+    """
+    ascii_text = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode()
+    return _WHITESPACE.sub(" ", ascii_text).strip()
 
 
 def resolve_multilabel(df: pd.DataFrame) -> pd.DataFrame:
