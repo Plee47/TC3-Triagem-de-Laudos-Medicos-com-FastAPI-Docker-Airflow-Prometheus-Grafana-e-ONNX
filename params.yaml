@@ -9,7 +9,10 @@ tfidf:
   ngram_max: 2
   max_features: 50000
   min_df: 2
-  sublinear_tf: true
+  # false de proposito: o conversor skl2onnx implementa sublinear_tf como
+  # log(1 + tf), e nao 1 + log(tf) como o sklearn, o que quebra a paridade com o ONNX.
+  # Sem ele o modelo ficou igual ou melhor (val macro-F1 0,750 -> 0,761).
+  sublinear_tf: false
 
 model:
   C: 1.0

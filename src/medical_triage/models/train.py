@@ -47,8 +47,25 @@ def build_pipeline(params: dict[str, Any]) -> Pipeline:
     )
 
 
+def convertible_vocabulary(vocabulary: dict[str, int]) -> list[str]:
+    """Remove n-gramas com alguma palavra fora do vocabulario.
+
+    O corte de max_features pode manter um bigrama e descartar uma de suas
+    palavras; o TfIdfVectorizer do ONNX Runtime nao casa esses bigramas (valem
+    0), o que quebra a paridade com o sklearn. Sao poucos (7 de ~37 mil).
+    """
+    return sorted(t for t in vocabulary if all(w in vocabulary for w in t.split(" ")))
+
+
 def train(df: pd.DataFrame, params: dict[str, Any]) -> Pipeline:
     pipeline = build_pipeline(params)
+    tfidf = pipeline.named_steps["tfidf"]
+    vocabulary = convertible_vocabulary(tfidf.fit(df[TEXT_COL]).vocabulary_)
+    dropped = len(tfidf.vocabulary_) - len(vocabulary)
+    if dropped:
+        logger.info("Vocabulario: %d n-gramas orfaos removidos", dropped)
+    # com vocabulario fixo, max_features/min_df nao se aplicam; o idf e refeito
+    tfidf.set_params(vocabulary=vocabulary, max_features=None, min_df=1)
     pipeline.fit(df[TEXT_COL], df[LABEL_COL])
     return pipeline
 

@@ -36,3 +36,10 @@ def test_run_writes_artifacts_to_output_dir(tmp_path, tiny_df, test_params, monk
     assert (out / "model.joblib").exists()
     assert (out / "metrics.json").exists()
     assert metrics["test"]["macro_f1"] > 0.9
+
+
+def test_convertible_vocabulary_drops_orphan_ngrams():
+    from medical_triage.models.train import convertible_vocabulary
+
+    vocab = {"heart": 0, "failure": 1, "heart failure": 2, "zoster ophthalmicus": 3, "zoster": 4}
+    assert convertible_vocabulary(vocab) == ["failure", "heart", "heart failure", "zoster"]
