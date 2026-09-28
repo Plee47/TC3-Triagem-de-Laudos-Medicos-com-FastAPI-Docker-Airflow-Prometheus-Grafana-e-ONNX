@@ -1,0 +1,11 @@
+{
+  "requests": 1500,
+  "concurrency": 1,
+  "intentional_invalid": 0,
+  "errors": 0,
+  "throughput_rps": 63.2,
+  "mean_ms": 15.6,
+  "p50_ms": 12.71,
+  "p95_ms": 31.66,
+  "p99_ms": 34.73
+}

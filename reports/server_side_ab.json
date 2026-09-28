@@ -1,0 +1,22 @@
+{
+  "sklearn": {
+    "http_p50_ms": 5.41,
+    "model_p50_ms": 2.633,
+    "http_p95_ms": 16.39,
+    "model_p95_ms": 7.024,
+    "http_p99_ms": 26.59,
+    "model_p99_ms": 9.237,
+    "model_mean_ms": 3.166,
+    "n": 1901
+  },
+  "onnx": {
+    "http_p50_ms": 3.69,
+    "model_p50_ms": 0.998,
+    "http_p95_ms": 9.98,
+    "model_p95_ms": 2.486,
+    "http_p99_ms": 14.69,
+    "model_p99_ms": 4.602,
+    "model_mean_ms": 1.227,
+    "n": 1921
+  }
+}
