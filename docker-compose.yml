@@ -10,7 +10,7 @@ services:
     ports:
       - "8080:8000"
     environment:
-      MODEL_BACKEND: ${MODEL_BACKEND:-sklearn}
+      MODEL_BACKEND: ${MODEL_BACKEND:-onnx}
     volumes:
       # modelo promovido pela DAG do Airflow; `docker compose restart api` recarrega
       - ./models:/app/models:ro

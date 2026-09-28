@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     MODEL_DIR=/app/models \
-    MODEL_BACKEND=sklearn
+    MODEL_BACKEND=onnx
 
 COPY --from=builder /build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
