@@ -456,7 +456,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0
           },
           "color": {
@@ -574,7 +574,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0
           },
           "color": {
@@ -683,7 +683,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0
           },
           "color": {
@@ -768,7 +768,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0
           },
           "color": {
@@ -966,7 +966,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0
           },
           "color": {
@@ -1066,7 +1066,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": 60000,
             "axisSoftMin": 0,
             "thresholdsStyle": {
               "mode": "dashed"

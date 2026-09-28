@@ -106,7 +106,7 @@ def timeseries(title, grid, targets, unit, desc, overrides=()):
         "lineWidth": 2,
         "fillOpacity": 0,
         "showPoints": "never",
-        "spanNulls": True,
+        "spanNulls": 60000,  # nao liga pontos atraves de >60 s sem dados
         "axisSoftMin": 0,
     }
     add(
