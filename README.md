@@ -4,13 +4,13 @@
 
 Pipeline de MLOps para triagem automática de laudos médicos: um classificador de texto leve (TF-IDF + Regressão Logística) define a condição do laudo e a traduz em urgência (**normal / atenção / urgente**). O modelo é servido por uma API FastAPI em Docker, com CI/CD no GitHub Actions, retreino orquestrado pelo Airflow, observabilidade com Prometheus + Grafana e otimização de latência via ONNX Runtime.
 
-> Status: **Etapas 1 a 3 concluídas** (dados, modelo, API em Docker, baseline de latência, CI/CD, DAG de retreino e monitoramento com Prometheus e Grafana). Etapa 4 (ONNX) em andamento.
+> Status: **as 4 etapas estão concluídas**: API em Docker, CI/CD, DAG de retreino, monitoramento e otimização com ONNX Runtime. Com o ONNX, a inferência ficou **~2,6x mais rápida** que com o sklearn, e as predições são idênticas.
 
 ## Sumário
 - [Dataset e premissas](#dataset-e-premissas)
 - [Decisão arquitetural (nuvem)](#decisão-arquitetural-nuvem)
 - [Modelo e resultados](#modelo-e-resultados)
-- [Latência — baseline](#latência--baseline)
+- [Latência: baseline e otimização com ONNX](#latência-baseline-e-otimização-com-onnx)
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
 - [Retreino (Airflow)](#retreino-airflow)
 - [Monitoramento (Prometheus + Grafana)](#monitoramento-prometheus--grafana)
@@ -74,25 +74,41 @@ Sistema do hospital (HIS/RIS) ──HTTPS──▶ API Gateway / ALB ──▶ E
 
 ## Modelo e resultados
 
-`TfidfVectorizer` (unigramas + bigramas, 50k termos, `sublinear_tf`) → `LogisticRegression` (`class_weight="balanced"`). Os hiperparâmetros estão em [`params.yaml`](params.yaml). O treino leva cerca de 15 s em CPU.
+`TfidfVectorizer` (unigramas + bigramas, 50k termos) → `LogisticRegression` (`class_weight="balanced"`). Os hiperparâmetros estão em [`params.yaml`](params.yaml). O treino leva cerca de 15 s em CPU. O vocabulário é montado de forma que o modelo converta para ONNX sem perda (veja a [seção de latência](#latência-baseline-e-otimização-com-onnx)).
 
 | Conjunto | Acurácia | Macro-F1 (5 classes) | Macro-F1 urgência (3 níveis) | Recall de "urgente" |
 |---|---|---|---|---|
-| Validação | 0,755 | 0,750 | 0,808 | 0,827 |
-| Teste (sem vazamento) | 0,782 | 0,777 | 0,822 | **0,862** |
+| Validação | 0,765 | 0,761 | 0,815 | 0,841 |
+| Teste (sem vazamento) | 0,786 | 0,782 | 0,824 | **0,858** |
 
-A classe mais difícil é *general pathological conditions* (F1 de 0,66): ela é genérica por definição e se sobrepõe às demais. As métricas completas, por classe, ficam em `models/metrics.json`, gerado no treino.
+A classe mais difícil é *general pathological conditions* (F1 de 0,67): ela é genérica por definição e se sobrepõe às demais. As métricas completas, por classe, ficam em `models/metrics.json`, gerado no treino.
 
-## Latência — baseline
+## Latência: baseline e otimização com ONNX
 
-API em container Docker local, backend **sklearn**, 1 worker uvicorn, amostras reais do conjunto de teste (`scripts/load_test.py`, com 20 requisições de aquecimento):
+**Otimização aplicada:** o pipeline é exportado para **ONNX** (`skl2onnx`) e servido com **ONNX Runtime**, que é o backend padrão da imagem (`MODEL_BACKEND=onnx`). O relatório completo, com metodologia, dados brutos e prints, está em [`reports/latency.md`](reports/latency.md).
+
+| Medição | sklearn | ONNX | Ganho |
+|---|---|---|---|
+| Só o modelo, in-process, p50 (`scripts/benchmark_latency.py`) | 1,19 ms | 0,57 ms | **2,1x** |
+| Só o modelo, no container, média (Prometheus, A/B) | 3,17 ms | 1,23 ms | **2,6x** |
+| Só o modelo, no container, p95 | 7,02 ms | 2,49 ms | **2,8x** |
+| HTTP `/predict` no servidor, p95 / p99 | 16,4 / 26,6 ms | 10,0 / 14,7 ms | **−39% / −45%** |
+| Tamanho do artefato | 3,5 MB | 2,6 MB | −27% |
+
+**Paridade:** nos 1.782 laudos de teste, 100% dos rótulos são iguais e a diferença máxima de probabilidade é 2,6e-7. Para chegar nisso foi preciso corrigir quatro divergências do conversor: regex do tokenizer, `sublinear_tf`, bigramas órfãos e locale. O detalhamento está no [relatório](reports/latency.md#paridade-o-que-precisou-ser-corrigido). O `export_onnx` falha se a paridade quebrar, o que impede a promoção na DAG.
+
+Em **lote** (64 laudos por chamada) o sklearn tem mais vazão, mas a triagem é real-time, com um laudo por requisição, e nesse caso o ONNX ganha.
+
+![sklearn vs ONNX](reports/img/grafana-sklearn-vs-onnx.png)
+
+**Baseline da Etapa 1** (API em container, backend sklearn, 1 worker uvicorn, modelo da Etapa 1), medido no cliente com `scripts/load_test.py`:
 
 | Cenário | Throughput | p50 | p95 | p99 | Erros |
 |---|---|---|---|---|---|
 | 500 req, concorrência 1 | 68 req/s | 11,2 ms | 30,4 ms | 34,0 ms | 0 |
 | 1000 req, concorrência 4 | 110 req/s | 32,0 ms | 65,6 ms | 102,7 ms | 0 |
 
-Os resultados brutos estão em [`reports/`](reports/). A comparação com o modelo otimizado (ONNX) entra na Etapa 4.
+Medido no cliente, o número inclui cerca de 10 ms de encaminhamento de porta do Docker Desktop no Windows. Por isso a comparação acima usa as métricas do próprio servidor.
 
 ## CI/CD (GitHub Actions)
 
@@ -108,25 +124,26 @@ lint ──┬──▶ test ─────────┬──▶ build
 | `lint` | `ruff check` e `ruff format --check` |
 | `test` | `pytest` com cobertura (dados, triagem, treino, registry, API) |
 | `dag-validate` | instala o Airflow 3.3.2 com as constraints oficiais, carrega a `DagBag` e confere as dependências entre as tasks |
-| `build` | baixa o dataset, treina, aplica o quality gate, faz o `docker build` e sobe o container para um smoke test de `/health` e `/predict` |
+| `build` | baixa o dataset, treina, exporta para ONNX com checagem de paridade, aplica o quality gate, faz o `docker build` e sobe o container com **cada** backend (sklearn e ONNX) para um smoke test de `/health` e `/predict` |
 
 ## Retreino (Airflow)
 
 A DAG [`dags/medical_triage_retrain.py`](dags/medical_triage_retrain.py) roda toda semana (`@weekly`) ou quando é disparada manualmente:
 
 ```
-ingest ──▶ preprocess ──▶ train_candidate ──▶ quality_gate ──▶ promote
+ingest ──▶ preprocess ──▶ train_candidate ──▶ export_onnx ──▶ quality_gate ──▶ promote
 ```
 
 - **ingest**: baixa o corpus e valida o formato (use o parâmetro `force_download` para baixar de novo).
 - **preprocess**: limpa o texto, resolve rótulos multi-condição, faz o split e remove o vazamento do teste.
 - **train_candidate**: treina em `models/candidate/`, sem mexer no modelo em produção.
+- **export_onnx**: gera o `model.onnx` do candidato e falha se ele divergir do sklearn.
 - **quality_gate**: aprova o candidato só se ele atingir macro-F1 ≥ 0,70 e recall de "urgente" ≥ 0,75 e não piorar o macro-F1 atual em mais de 0,02. Os limites ficam em [`params.yaml`](params.yaml). Se o candidato for reprovado, a task faz *short-circuit* e o `promote` fica como **skipped**.
 - **promote**: arquiva a versão atual em `models/archive/<timestamp>/` e troca os artefatos de forma atômica.
 
 As tasks só orquestram. Toda a lógica está em `medical_triage.*` e é testada sem precisar do Airflow.
 
-A DAG foi validada ponta a ponta no Airflow 3.3.2 em Docker. Uma execução completa leva cerca de 55 s e aprovou e promoveu o modelo (macro-F1 0,777). Com o limite elevado de propósito para 0,99, o gate reprovou o candidato e o `promote` ficou como skipped.
+A DAG foi validada ponta a ponta no Airflow 3.3.2 em Docker (Linux): as 6 tasks terminaram com sucesso, o modelo foi aprovado (macro-F1 0,782) e o `model.onnx` foi promovido junto com o `model.joblib`. Com o limite elevado de propósito para 0,99, o gate reprovou o candidato e o `promote` ficou como skipped.
 
 ```bash
 docker compose -f docker-compose.airflow.yml up -d --build
@@ -177,10 +194,11 @@ Pré-requisitos: Python 3.11+, [Poetry](https://python-poetry.org/) 2.x e Docker
 ```bash
 poetry install
 
-# pipeline de dados + treino (gera models/model.joblib e models/metrics.json)
+# pipeline de dados + treino + ONNX (gera models/model.joblib, model.onnx e metrics.json)
 poetry run python -m medical_triage.data.ingest
 poetry run python -m medical_triage.data.preprocess
 poetry run python -m medical_triage.models.train
+poetry run python -m medical_triage.models.export_onnx
 
 # testes e lint
 poetry run pytest
@@ -193,7 +211,8 @@ poetry run uvicorn medical_triage.api.main:app --reload --port 8080
 docker build -t medical-triage .
 docker run -d --name triage-api -p 8080:8000 medical-triage
 
-# baseline de latência
+# latência: modelo isolado (sklearn vs ONNX) e ponta a ponta via HTTP
+poetry run python scripts/benchmark_latency.py
 poetry run python scripts/load_test.py --url http://localhost:8080 -n 500 -c 1
 ```
 
@@ -213,16 +232,16 @@ curl -X POST localhost:8080/predict -H "Content-Type: application/json" \
   "condition_label": 4,
   "condition": "cardiovascular_diseases",
   "urgency": "urgente",
-  "confidence": 0.9903,
-  "probabilities": {"neoplasms": 0.0011, "digestive_system_diseases": 0.0009,
-                    "nervous_system_diseases": 0.0039, "cardiovascular_diseases": 0.9903,
-                    "general_pathological_conditions": 0.0038},
-  "model_backend": "sklearn",
-  "inference_ms": 10.6
+  "confidence": 0.9844,
+  "probabilities": {"neoplasms": 0.0016, "digestive_system_diseases": 0.0016,
+                    "nervous_system_diseases": 0.0056, "cardiovascular_diseases": 0.9844,
+                    "general_pathological_conditions": 0.0067},
+  "model_backend": "onnx",
+  "inference_ms": 0.884
 }
 ```
 
-`GET /health` informa se a API está no ar, se o modelo foi carregado e qual backend está em uso. A documentação interativa fica em `/docs`.
+`GET /health` informa se a API está no ar, se o modelo foi carregado e qual backend está em uso. `GET /metrics` expõe as métricas no formato Prometheus. A documentação interativa fica em `/docs`. Para trocar de backend, use `MODEL_BACKEND=sklearn|onnx` (o padrão da imagem é `onnx`).
 
 ## Estrutura do repositório
 
@@ -233,7 +252,8 @@ src/medical_triage/
   data/ingest.py       download + validação do corpus
   data/preprocess.py   limpeza, resolução de rótulos, split, remoção de vazamento
   models/train.py      pipeline TF-IDF + LogReg, avaliação, persistência
-  models/predictor.py  interface de inferência (sklearn; ONNX na Etapa 4)
+  models/export_onnx.py  conversão para ONNX + checagem de paridade
+  models/predictor.py  inferência com sklearn ou ONNX Runtime (mesma interface)
   models/registry.py   quality gate + promoção candidato → produção
   api/                 FastAPI (schemas, endpoints, métricas Prometheus)
 dags/                  DAG de retreino do Airflow
@@ -244,6 +264,6 @@ params.yaml            hiperparâmetros + limites do quality gate
 scripts/               carga/latência e gerador do dashboard Grafana
 monitoring/            Prometheus (scrape + alertas) e Grafana (provisionamento + dashboard)
 docker-compose.yml     API + Prometheus + Grafana
-tests/                 pytest (dados, triagem, treino, API)
-reports/               resultados de latência
+tests/                 pytest (dados, triagem, treino, ONNX, registry, API, métricas, DAG)
+reports/               benchmarks de latência (latency.md) e prints do Grafana
 ```
