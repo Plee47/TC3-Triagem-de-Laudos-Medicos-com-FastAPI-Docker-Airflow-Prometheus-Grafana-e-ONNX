@@ -4,7 +4,7 @@
 
 Pipeline de MLOps para triagem automática de laudos médicos: um classificador de texto leve (TF-IDF + Regressão Logística) define a condição do laudo e a traduz em urgência (**normal / atenção / urgente**). O modelo é servido por uma API FastAPI em Docker, com CI/CD no GitHub Actions, retreino orquestrado pelo Airflow, observabilidade com Prometheus + Grafana e otimização de latência via ONNX Runtime.
 
-> Status: **Etapas 1 e 2 concluídas** (dados, modelo, API em Docker, baseline de latência, CI/CD e DAG de retreino). Etapas 3 e 4 em andamento.
+> Status: **Etapas 1 a 3 concluídas** (dados, modelo, API em Docker, baseline de latência, CI/CD, DAG de retreino e monitoramento com Prometheus e Grafana). Etapa 4 (ONNX) em andamento.
 
 ## Sumário
 - [Dataset e premissas](#dataset-e-premissas)
@@ -13,6 +13,7 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 - [Latência — baseline](#latência--baseline)
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
 - [Retreino (Airflow)](#retreino-airflow)
+- [Monitoramento (Prometheus + Grafana)](#monitoramento-prometheus--grafana)
 - [Como executar](#como-executar)
 - [API](#api)
 - [Estrutura do repositório](#estrutura-do-repositório)
@@ -133,6 +134,42 @@ docker compose -f docker-compose.airflow.yml up -d --build
 docker compose -f docker-compose.airflow.yml exec airflow airflow dags trigger medical_triage_retrain
 ```
 
+## Monitoramento (Prometheus + Grafana)
+
+```bash
+docker compose up -d --build        # API + Prometheus + Grafana (treine o modelo antes)
+poetry run python scripts/load_test.py -n 2400 -c 2 --rate 8 --invalid-ratio 0.05   # gera tráfego
+```
+
+| Serviço | URL |
+|---|---|
+| API (Swagger) | http://localhost:8080/docs |
+| Métricas brutas | http://localhost:8080/metrics |
+| Prometheus | http://localhost:9090 (alvos em *Status → Targets*, regras em *Alerts*) |
+| Grafana | http://localhost:3000, acesso anônimo somente leitura (o dashboard abre como página inicial); `admin/admin` para editar |
+
+**Métricas expostas pela API** ([`api/metrics.py`](src/medical_triage/api/metrics.py)). As rotas são rotuladas pelo template (`/predict`, e não pela URL crua) e o `/metrics` não é contabilizado.
+
+| Métrica | Tipo | Para quê |
+|---|---|---|
+| `http_requests_total{method,route,status}` | Counter | volume de requisições e taxa de erro |
+| `http_request_duration_seconds{method,route}` | Histogram | latência HTTP de ponta a ponta (p50/p95/p99) |
+| `http_requests_in_progress` | Gauge | concorrência |
+| `model_inference_duration_seconds{backend}` | Histogram | latência só do modelo, para comparar sklearn e ONNX |
+| `triage_predictions_total{urgency,condition}` | Counter | distribuição das predições |
+| `triage_prediction_confidence` | Histogram | confiança do modelo, como sinal de drift |
+| `triage_model_info{backend,trained_at,test_macro_f1}`, `triage_model_loaded` | Gauge | qual modelo está servindo |
+
+**Dashboard** ([JSON provisionado](monitoring/grafana/dashboards/medical-triage.json), gerado por [`scripts/build_grafana_dashboard.py`](scripts/build_grafana_dashboard.py)). São 13 painéis em três blocos: visão geral, tráfego e latência, e predições do modelo.
+
+![Dashboard Grafana](reports/img/grafana-dashboard.png)
+
+*Print com cerca de 5 min de carga a 8 req/s, com 5% de requisições inválidas de propósito (viram os 422 do painel de erro). O pico de p99 perto das 16:03 aconteceu durante um restart do Grafana e do Prometheus.*
+
+**Alertas** ([`alerts.yml`](monitoring/prometheus/alerts.yml)): API fora do ar; modelo não carregado; mais de 5% de erros 5xx no `/predict`; p95 acima de 200 ms; e mais de 65% das predições com confiança abaixo de 0,5. Esse último limite foi calibrado: o baseline medido nos conjuntos de validação e teste é de cerca de 50%, então o alerta dispara quando a fração passa uns 15 p.p. disso por 15 min, o que indica possível drift nos laudos.
+
+> Depois de uma promoção feita pela DAG, `docker compose restart api` carrega o novo modelo. O diretório `models/` fica montado como somente leitura no container.
+
 ## Como executar
 
 Pré-requisitos: Python 3.11+, [Poetry](https://python-poetry.org/) 2.x e Docker.
@@ -198,13 +235,15 @@ src/medical_triage/
   models/train.py      pipeline TF-IDF + LogReg, avaliação, persistência
   models/predictor.py  interface de inferência (sklearn; ONNX na Etapa 4)
   models/registry.py   quality gate + promoção candidato → produção
-  api/                 FastAPI (schemas + endpoints)
+  api/                 FastAPI (schemas, endpoints, métricas Prometheus)
 dags/                  DAG de retreino do Airflow
 docker/airflow/        imagem do Airflow com as libs de ML fixadas no lock
 .github/workflows/     CI (lint, test, dag-validate, build)
 configs/urgency_map.yaml
 params.yaml            hiperparâmetros + limites do quality gate
-scripts/load_test.py   carga e medição de latência
+scripts/               carga/latência e gerador do dashboard Grafana
+monitoring/            Prometheus (scrape + alertas) e Grafana (provisionamento + dashboard)
+docker-compose.yml     API + Prometheus + Grafana
 tests/                 pytest (dados, triagem, treino, API)
 reports/               resultados de latência
 ```
