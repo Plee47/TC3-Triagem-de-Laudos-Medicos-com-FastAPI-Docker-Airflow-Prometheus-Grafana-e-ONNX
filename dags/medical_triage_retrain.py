@@ -1,11 +1,12 @@
 """DAG de retreino do classificador de triagem.
 
-ingest -> preprocess -> train_candidate -> quality_gate -> promote
+ingest -> preprocess -> train_candidate -> export_onnx -> quality_gate -> promote
 
 A logica fica em medical_triage.* (testavel sem Airflow); a DAG so orquestra.
 O candidato e treinado em models/candidate e so substitui o modelo em
 producao se passar no quality gate (params.yaml > quality_gate). Reprovado,
-o gate faz short-circuit e a promocao fica como "skipped".
+o gate faz short-circuit e a promocao fica como "skipped". O export_onnx falha
+a DAG se o ONNX divergir do sklearn: nada e promovido sem paridade.
 """
 
 from datetime import datetime, timedelta
@@ -52,6 +53,14 @@ def medical_triage_retrain():
         metrics = train_mod.run(output_dir=get_settings().candidate_dir)
         return {k: v for k, v in metrics["test"].items() if isinstance(v, float)}
 
+    @task
+    def export_onnx(candidate_summary: dict[str, float]) -> dict[str, float]:
+        from medical_triage.config import get_settings
+        from medical_triage.models import export_onnx as export_mod
+
+        parity = export_mod.run(model_dir=get_settings().candidate_dir)
+        return {**candidate_summary, "onnx_max_abs_proba_diff": parity["max_abs_proba_diff"]}
+
     @task.short_circuit
     def quality_gate(candidate_summary: dict[str, float]) -> bool:
         import logging
@@ -81,7 +90,7 @@ def medical_triage_retrain():
         settings = get_settings()
         return [p.name for p in promote_mod(settings.candidate_dir, settings.model_dir)]
 
-    summary = train_candidate(preprocess(ingest()))
+    summary = export_onnx(train_candidate(preprocess(ingest())))
     quality_gate(summary) >> promote()
 
 

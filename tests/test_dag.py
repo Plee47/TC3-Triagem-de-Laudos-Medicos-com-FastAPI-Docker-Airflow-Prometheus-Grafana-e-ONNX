@@ -23,7 +23,7 @@ def test_dag_imports_without_errors(dagbag):
 def test_dag_structure(dagbag):
     dag = dagbag.get_dag("medical_triage_retrain")
     assert dag is not None
-    order = ["ingest", "preprocess", "train_candidate", "quality_gate", "promote"]
+    order = ["ingest", "preprocess", "train_candidate", "export_onnx", "quality_gate", "promote"]
     assert set(dag.task_ids) == set(order)
     for upstream, downstream in zip(order, order[1:], strict=False):
         assert downstream in dag.get_task(upstream).downstream_task_ids
