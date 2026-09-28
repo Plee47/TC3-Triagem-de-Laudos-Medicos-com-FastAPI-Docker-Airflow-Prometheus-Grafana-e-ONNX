@@ -22,7 +22,6 @@ models/archive/
 # Tooling
 .vscode/
 .idea/
-.claude/
 .pytest_cache/
 .ruff_cache/
 .coverage
