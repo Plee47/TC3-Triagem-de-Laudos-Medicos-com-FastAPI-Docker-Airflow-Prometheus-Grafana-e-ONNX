@@ -6,6 +6,7 @@ o download e pulado.
 """
 
 import logging
+import shutil
 import urllib.request
 from pathlib import Path
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 TEXT_COL = "medical_abstract"
 LABEL_COL = "condition_label"
 MIN_ROWS = 2000
+DOWNLOAD_TIMEOUT_S = 60
 
 
 def download_dataset(
@@ -32,7 +34,15 @@ def download_dataset(
         else:
             url = f"{base_url}/{name}"
             logger.info("Baixando %s", url)
-            urllib.request.urlretrieve(url, target)
+            # baixa para .part e renomeia: um download interrompido nunca fica
+            # como arquivo "existente" que as proximas execucoes reaproveitariam
+            partial = target.with_suffix(target.suffix + ".part")
+            with (
+                urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_S) as resp,
+                open(partial, "wb") as out,
+            ):
+                shutil.copyfileobj(resp, out)
+            partial.replace(target)
         paths.append(target)
     return paths
 

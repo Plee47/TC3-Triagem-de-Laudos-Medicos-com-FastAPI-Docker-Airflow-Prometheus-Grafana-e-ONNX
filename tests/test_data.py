@@ -62,3 +62,44 @@ def test_validate_accepts_good_data(tiny_df):
 def test_validate_rejects_bad_data(df, msg):
     with pytest.raises(ValueError, match=msg):
         validate_dataset(df, {1, 2, 3, 4, 5}, min_rows=10)
+
+
+def test_download_is_atomic_and_skips_existing(tmp_path, monkeypatch):
+    import io
+
+    from medical_triage.data import ingest
+
+    calls = []
+
+    def fake_urlopen(url, timeout):
+        calls.append((url, timeout))
+        return io.BytesIO(b"condition_label,medical_abstract\n1,x\n")
+
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", fake_urlopen)
+    (tmp_path / "old.csv").write_text("ja existe")
+
+    ingest.download_dataset(tmp_path, "http://x", ["new.csv", "old.csv"])
+
+    assert (tmp_path / "new.csv").read_text().startswith("condition_label")
+    assert (tmp_path / "old.csv").read_text() == "ja existe"
+    assert calls == [("http://x/new.csv", ingest.DOWNLOAD_TIMEOUT_S)]
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_interrupted_download_leaves_no_target(tmp_path, monkeypatch):
+    from medical_triage.data import ingest
+
+    class Broken:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, *_):
+            raise ConnectionError("caiu")
+
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", lambda url, timeout: Broken())
+    with pytest.raises(ConnectionError):
+        ingest.download_dataset(tmp_path, "http://x", ["train.csv"])
+    assert not (tmp_path / "train.csv").exists()
