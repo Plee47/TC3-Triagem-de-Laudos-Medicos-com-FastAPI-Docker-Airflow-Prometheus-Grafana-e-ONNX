@@ -20,7 +20,7 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 
 ## Dataset e premissas
 
-**Medical Abstracts TC Corpus** ([Kaggle](https://www.kaggle.com/datasets/saharalaa/medical-abstracts-tc-corpus) · [repositório dos autores](https://github.com/sebischair/Medical-Abstracts-TC-Corpus)): 14.438 abstracts médicos em inglês, 11.550 de treino e 2.888 de teste, em 5 classes. A ingestão (`medical_triage.data.ingest`) baixa os CSVs do repositório dos autores (mesmo conteúdo do Kaggle, sem exigir credencial) e valida o formato.
+**Medical Abstracts TC Corpus** ([Kaggle](https://www.kaggle.com/datasets/saharalaa/medical-abstracts-tc-corpus) · [repositório dos autores](https://github.com/sebischair/Medical-Abstracts-TC-Corpus)): 14.438 abstracts médicos em inglês, 11.550 de treino e 2.888 de teste, em 5 classes. Os CSVs estão **versionados no repositório** em [`data/raw/`](data/raw/), com a atribuição e a licença (CC BY-SA 3.0) em [`data/raw/README.md`](data/raw/README.md). Assim, a ingestão (`medical_triage.data.ingest`) só lê e valida os arquivos locais, e treino, CI e DAG rodam sem acesso à rede e sempre sobre os mesmos dados. Para atualizar a partir da fonte, use `python -m medical_triage.data.ingest --download`.
 
 **Da condição para a urgência.** O corpus não tem rótulo de urgência. O modelo aprende as 5 condições (sinal real do dataset) e a urgência é derivada por uma tabela versionada em [`configs/urgency_map.yaml`](configs/urgency_map.yaml):
 
@@ -124,7 +124,7 @@ lint ──┬──▶ test ─────────┬──▶ build
 | `lint` | `ruff check` e `ruff format --check` |
 | `test` | `pytest` com cobertura (dados, triagem, treino, registry, API) |
 | `dag-validate` | instala o Airflow 3.3.2 com as constraints oficiais, carrega a `DagBag` e confere as dependências entre as tasks |
-| `build` | baixa o dataset, treina, exporta para ONNX com checagem de paridade, aplica o quality gate, faz o `docker build` e sobe o container com **cada** backend (sklearn e ONNX) para um smoke test de `/health` e `/predict` |
+| `build` | treina com o dataset versionado, exporta para ONNX com checagem de paridade, aplica o quality gate, faz o `docker build` e sobe o container com **cada** backend (sklearn e ONNX) para um smoke test de `/health` e `/predict` |
 
 ## Retreino (Airflow)
 
@@ -134,7 +134,7 @@ A DAG [`dags/medical_triage_retrain.py`](dags/medical_triage_retrain.py) roda to
 ingest ──▶ preprocess ──▶ train_candidate ──▶ export_onnx ──▶ quality_gate ──▶ promote
 ```
 
-- **ingest**: baixa o corpus e valida o formato (use o parâmetro `force_download` para baixar de novo).
+- **ingest**: lê e valida os CSVs versionados em `data/raw/`. O parâmetro `download=true`, ao disparar a DAG, rebaixa os arquivos da fonte.
 - **preprocess**: limpa o texto, resolve rótulos multi-condição, faz o split e remove o vazamento do teste.
 - **train_candidate**: treina em `models/candidate/`, sem mexer no modelo em produção.
 - **export_onnx**: gera o `model.onnx` do candidato e falha se ele divergir do sklearn.
@@ -249,7 +249,7 @@ curl -X POST localhost:8080/predict -H "Content-Type: application/json" \
 src/medical_triage/
   config.py            settings (env) e params.yaml
   triage.py            condição → urgência
-  data/ingest.py       download + validação do corpus
+  data/ingest.py       leitura + validação do corpus (download só sob demanda)
   data/preprocess.py   limpeza, resolução de rótulos, split, remoção de vazamento
   models/train.py      pipeline TF-IDF + LogReg, avaliação, persistência
   models/export_onnx.py  conversão para ONNX + checagem de paridade
