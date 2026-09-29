@@ -18,6 +18,7 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 - [API](#api)
 - [Estrutura do repositório](#estrutura-do-repositório)
 - [Time](#time)
+- [Licença](#licença)
 
 ## Dataset e premissas
 
@@ -282,3 +283,7 @@ Tech Challenge Fase 3 — POSTECH 10MLET.
 | Pedro Henrique Ostroski | Decisão arquitetural e API inicial em Docker | Etapa 1 |
 | Alisson Henrique Lepesqueur Borges Fabiano | Monitoramento e observabilidade (Prometheus + Grafana) | Etapa 3 |
 | Rafael Fernando Gimenes | CI/CD (GitHub Actions) e pipeline de treino (Airflow) | Etapa 2 |
+
+## Licença
+
+O código está sob a licença [MIT](LICENSE). O dataset em [`data/raw/`](data/raw/) **não** está incluído nela: ele segue a licença original [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) dos autores (veja [`data/raw/README.md`](data/raw/README.md)).
