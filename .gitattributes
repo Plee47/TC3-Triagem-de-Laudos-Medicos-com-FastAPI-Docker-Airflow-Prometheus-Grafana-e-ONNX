@@ -1,0 +1,2 @@
+# Dataset versionado: preserva os bytes originais (sem conversao de fim de linha)
+data/raw/*.csv -text
