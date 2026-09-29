@@ -64,7 +64,7 @@ def test_validate_rejects_bad_data(df, msg):
         validate_dataset(df, {1, 2, 3, 4, 5}, min_rows=10)
 
 
-def test_download_is_atomic_and_skips_existing(tmp_path, monkeypatch):
+def test_download_is_atomic(tmp_path, monkeypatch):
     import io
 
     from medical_triage.data import ingest
@@ -76,14 +76,48 @@ def test_download_is_atomic_and_skips_existing(tmp_path, monkeypatch):
         return io.BytesIO(b"condition_label,medical_abstract\n1,x\n")
 
     monkeypatch.setattr(ingest.urllib.request, "urlopen", fake_urlopen)
-    (tmp_path / "old.csv").write_text("ja existe")
+    (tmp_path / "old.csv").write_text("versao antiga")
 
     ingest.download_dataset(tmp_path, "http://x", ["new.csv", "old.csv"])
 
     assert (tmp_path / "new.csv").read_text().startswith("condition_label")
-    assert (tmp_path / "old.csv").read_text() == "ja existe"
-    assert calls == [("http://x/new.csv", ingest.DOWNLOAD_TIMEOUT_S)]
+    assert (tmp_path / "old.csv").read_text().startswith("condition_label")
+    assert calls == [
+        ("http://x/new.csv", ingest.DOWNLOAD_TIMEOUT_S),
+        ("http://x/old.csv", ingest.DOWNLOAD_TIMEOUT_S),
+    ]
     assert not list(tmp_path.glob("*.part"))
+
+
+def test_run_uses_local_files_without_network(tmp_path, monkeypatch):
+    from medical_triage.config import get_settings
+    from medical_triage.data import ingest
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("a ingestao padrao nao deve acessar a rede")
+
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", no_network)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    rows = [f"{1 + i % 5},abstract number {i}" for i in range(ingest.MIN_ROWS)]
+    for name in ("medical_tc_train.csv", "medical_tc_test.csv"):
+        (raw / name).write_text("condition_label,medical_abstract\n" + "\n".join(rows))
+    labels = "\n".join(f"{i},c{i}" for i in range(1, 6))
+    (raw / "medical_tc_labels.csv").write_text("condition_label,condition_name\n" + labels)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    try:
+        train, test = ingest.run()
+    finally:
+        get_settings.cache_clear()
+    assert len(train) == len(test) == ingest.MIN_ROWS
+
+
+def test_missing_local_files_explain_how_to_restore(tmp_path):
+    from medical_triage.data.ingest import check_local_files
+
+    with pytest.raises(FileNotFoundError, match="--download"):
+        check_local_files(tmp_path, ["medical_tc_train.csv"])
 
 
 def test_interrupted_download_leaves_no_target(tmp_path, monkeypatch):

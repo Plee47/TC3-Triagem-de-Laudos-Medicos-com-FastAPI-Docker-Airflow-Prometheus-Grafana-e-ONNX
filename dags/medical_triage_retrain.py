@@ -28,7 +28,7 @@ default_args = {
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
-    params={"force_download": False},
+    params={"download": False},
     tags=["medical-triage", "training"],
 )
 def medical_triage_retrain():
@@ -36,7 +36,8 @@ def medical_triage_retrain():
     def ingest(params=None) -> dict[str, int]:
         from medical_triage.data import ingest as ingest_mod
 
-        train, test = ingest_mod.run(force=bool(params and params.get("force_download")))
+        # por padrao le os CSVs versionados; download=True rebaixa da fonte
+        train, test = ingest_mod.run(download=bool(params and params.get("download")))
         return {"train_rows": len(train), "test_rows": len(test)}
 
     @task

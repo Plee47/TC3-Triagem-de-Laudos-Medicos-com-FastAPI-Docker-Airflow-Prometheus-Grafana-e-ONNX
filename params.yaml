@@ -1,6 +1,7 @@
 seed: 42
 
 data:
+  # CSVs versionados em data/raw; base_url so e usado com `ingest --download`
   base_url: https://raw.githubusercontent.com/sebischair/Medical-Abstracts-TC-Corpus/main
   files: [medical_tc_train.csv, medical_tc_test.csv, medical_tc_labels.csv]
   validation_size: 0.15
