@@ -17,6 +17,7 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 - [Como executar](#como-executar)
 - [API](#api)
 - [Estrutura do repositório](#estrutura-do-repositório)
+- [Time](#time)
 
 ## Dataset e premissas
 
@@ -267,3 +268,17 @@ docker-compose.yml     API + Prometheus + Grafana
 tests/                 pytest (dados, triagem, treino, ONNX, registry, API, métricas, DAG)
 reports/               benchmarks de latência (latency.md) e prints do Grafana
 ```
+
+## Time
+
+Tech Challenge Fase 3 — POSTECH 10MLET.
+
+### Equipe e Responsabilidades
+
+| Membro | Responsabilidade | Etapa |
+|---|---|---|
+| Tathiana Araujo Rodnarchuki | Otimização de latência (ONNX) e vídeo STAR | Etapa 4 |
+| Giselly Kathellyn Domingos da Silva | Otimização de latência (ONNX) e vídeo STAR | Etapa 4 |
+| Pedro Henrique Ostroski | Decisão arquitetural e API inicial em Docker | Etapa 1 |
+| Alisson Henrique Lepesqueur Borges Fabiano | Monitoramento e observabilidade (Prometheus + Grafana) | Etapa 3 |
+| Rafael Fernando Gimenes | CI/CD (GitHub Actions) e pipeline de treino (Airflow) | Etapa 2 |
