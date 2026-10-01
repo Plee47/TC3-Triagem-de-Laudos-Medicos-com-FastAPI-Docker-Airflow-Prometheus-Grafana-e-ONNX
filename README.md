@@ -9,6 +9,7 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 ## Sumário
 - [Dataset e premissas](#dataset-e-premissas)
 - [Decisão arquitetural (nuvem)](#decisão-arquitetural-nuvem)
+- [Deploy na AWS](#deploy-na-aws)
 - [Modelo e resultados](#modelo-e-resultados)
 - [Latência: baseline e otimização com ONNX](#latência-baseline-e-otimização-com-onnx)
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
@@ -73,6 +74,41 @@ Sistema do hospital (HIS/RIS) ──HTTPS──▶ API Gateway / ALB ──▶ E
 | Segurança / LGPD | VPC privada, TLS, sem persistir o texto do laudo, logs sem PHI | Laudo é dado sensível de saúde |
 
 **Equivalentes em outras nuvens:** GCP Cloud Run + Cloud Composer + Managed Prometheus; Azure Container Apps + Airflow no AKS/Data Factory + Azure Monitor.
+
+## Deploy na AWS
+
+A API está publicada na AWS (região `us-east-2`). A imagem Docker do projeto fica no **ECR** e roda no **ECS Express**, que provisiona o serviço Fargate com um **ALB** na frente:
+
+```
+                    AWS
+                     │
+                    ECR
+                     │
+                     ▼
+                ECS Express
+                     │
+                     ▼
+                    ALB
+                     │
+                     ▼
+           FastAPI + ONNX Runtime
+                     │
+             ┌───────┴───────┐
+             ▼               ▼
+          /health         /predict
+```
+
+| Recurso | URL |
+|---|---|
+| API (Swagger) | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/docs |
+| Métricas (Prometheus) | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/metrics |
+| Health check | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/health |
+
+```bash
+curl -X POST https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/predict \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Acute myocardial infarction in patients with coronary artery disease..."}'
+```
 
 ## Modelo e resultados
 
