@@ -4,7 +4,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from medical_triage import __version__
 from medical_triage.api.metrics import (
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # uvicorn so configura os proprios loggers; sem isso os INFO do pacote nao aparecem
+    # (nivel que o logging nao conhece, como o "trace" do uvicorn, vira INFO)
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
     try:
         app.state.predictor = load_predictor(settings.model_backend, settings.model_dir)
         set_model_state(settings.model_backend, read_metrics(settings.model_dir))
@@ -46,10 +49,13 @@ def metrics():
 
 
 @app.get("/health", response_model=HealthResponse)
-def health(request: Request) -> HealthResponse:
+def health(request: Request, response: Response) -> HealthResponse:
     predictor = request.app.state.predictor
+    # sem modelo a API nao serve /predict: 503 derruba o HEALTHCHECK do container
+    if predictor is None:
+        response.status_code = 503
     return HealthResponse(
-        status="ok",
+        status="ok" if predictor is not None else "indisponivel",
         model_loaded=predictor is not None,
         model_backend=get_settings().model_backend,
     )
@@ -60,6 +66,8 @@ def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     predictor = request.app.state.predictor
     if predictor is None:
         raise HTTPException(status_code=503, detail="Modelo nao carregado")
+    if not predictor.has_known_terms(payload.text):
+        raise HTTPException(status_code=422, detail="Nenhum termo conhecido pelo modelo")
 
     start = time.perf_counter()
     proba = predictor.predict_proba([payload.text])[0]

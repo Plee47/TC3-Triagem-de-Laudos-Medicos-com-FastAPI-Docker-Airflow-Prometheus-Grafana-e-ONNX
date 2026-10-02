@@ -4,6 +4,7 @@ import pytest
 
 from medical_triage.config import get_settings, load_params
 from medical_triage.data.ingest import LABEL_COL, TEXT_COL
+from medical_triage.models.export_onnx import export
 from medical_triage.models.train import train
 
 # Vocabulario pequeno e bem separado por classe: suficiente para um modelo
@@ -44,6 +45,14 @@ def trained_pipeline(tiny_df, test_params):
 def model_dir(tmp_path, trained_pipeline, monkeypatch):
     joblib.dump(trained_pipeline, tmp_path / "model.joblib")
     monkeypatch.setenv("MODEL_DIR", str(tmp_path))
+    # so ha model.joblib aqui; fixa o backend para um .env local (MODEL_BACKEND=onnx) nao vazar
+    monkeypatch.setenv("MODEL_BACKEND", "sklearn")
     get_settings.cache_clear()
     yield tmp_path
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def onnx_model_dir(model_dir, tiny_df):
+    export(model_dir, tiny_df[TEXT_COL].tolist())
+    return model_dir

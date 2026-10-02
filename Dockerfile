@@ -22,8 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY configs/ ./configs/
 COPY params.yaml ./
-# Artefatos gerados por `make train` / DAG do Airflow antes do build.
+# Artefatos gerados antes do build pelo pipeline de treino (README, "Como executar":
+# ingest, preprocess, train e export_onnx) ou pela DAG do Airflow.
 COPY models/ ./models/
+RUN test -f models/model.onnx && test -f models/model.joblib \
+    || (echo "ERRO: models/model.onnx ou models/model.joblib ausente. Treine e exporte o modelo antes do build (README, Como executar)." >&2 && exit 1)
 
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser /app
 USER appuser
