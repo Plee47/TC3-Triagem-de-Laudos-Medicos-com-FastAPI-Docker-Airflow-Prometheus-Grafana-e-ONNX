@@ -8,7 +8,11 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # cancela so em PR: um push na main sempre termina (e publica a imagem)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 env:
   PYTHON_VERSION: "3.11"
@@ -65,10 +69,37 @@ jobs:
         env:
           AIRFLOW__CORE__LOAD_EXAMPLES: "False"
 
+  monitoring:
+    name: Monitoramento (promtool + dashboard)
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Config e regras do Prometheus (promtool)
+        run: |
+          # mesma imagem do docker-compose.yml; o rule_files /etc/prometheus/alerts.yml
+          # cai dentro do mount, entao o check config valida as regras tambem
+          image=$(grep -oE 'prom/prometheus:[^[:space:]]+' docker-compose.yml)
+          docker run --rm -v "$PWD/monitoring/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool "$image" check config /etc/prometheus/prometheus.yml
+      - name: Dashboard do Grafana igual ao gerado pelo script
+        run: |
+          python scripts/build_grafana_dashboard.py
+          git diff --exit-code monitoring/grafana/dashboards/
+
   build:
     name: Treino + build + smoke test da imagem
-    needs: [test, dag-validate]
+    needs: [test, dag-validate, monitoring]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # so push na main publica a imagem; PR e workflow_dispatch apenas validam
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
       - run: pipx install poetry==${{ env.POETRY_VERSION }}
@@ -109,3 +140,21 @@ jobs:
       - name: Logs do container (em caso de falha)
         if: failure()
         run: docker logs api || true
+      # CD: publica a mesma imagem que passou no smoke test (a imagem local nao passa
+      # de um job para outro, por isso o push fica no fim deste job)
+      - name: Login no GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push da imagem para o GHCR
+        if: env.PUBLISH == 'true'
+        run: |
+          # nome de imagem no registry precisa ser minusculo (owner e Plee47)
+          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/medical-triage
+          for tag in ${{ github.sha }} latest; do
+            docker tag medical-triage:${{ github.sha }} "$image:$tag"
+            docker push "$image:$tag"
+          done
