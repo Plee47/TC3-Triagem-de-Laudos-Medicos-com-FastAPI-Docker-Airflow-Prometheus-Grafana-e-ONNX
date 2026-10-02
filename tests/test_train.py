@@ -1,3 +1,5 @@
+import json
+
 from medical_triage.models.predictor import SklearnPredictor
 from medical_triage.models.train import evaluate
 
@@ -6,7 +8,17 @@ def test_pipeline_learns_tiny_dataset(trained_pipeline, tiny_df):
     metrics = evaluate(trained_pipeline, tiny_df)
     assert metrics["macro_f1"] > 0.9
     assert 0.0 <= metrics["urgente_recall"] <= 1.0
-    assert set(metrics) >= {"accuracy", "urgency_macro_f1", "per_class"}
+    assert set(metrics) >= {"accuracy", "urgency_macro_f1", "low_confidence_rate", "per_class"}
+
+
+def test_low_confidence_rate_counts_unreadable_texts(trained_pipeline):
+    import pandas as pd
+
+    from medical_triage.data.ingest import LABEL_COL, TEXT_COL
+
+    # sem nenhum termo do vocabulario o modelo cai no prior (~0,2 por classe)
+    df = pd.DataFrame({LABEL_COL: [1, 4], TEXT_COL: ["zzz qqq", "lorem ipsum"]})
+    assert evaluate(trained_pipeline, df)["low_confidence_rate"] == 1.0
 
 
 def test_sklearn_predictor_returns_probabilities(model_dir):
@@ -39,6 +51,8 @@ def test_run_writes_artifacts_to_output_dir(tmp_path, tiny_df, test_params, monk
     assert (out / "metrics.json").exists()
     assert not (out / "model.onnx").exists()  # ONNX antigo nao sobrevive ao retreino
     assert metrics["test"]["macro_f1"] > 0.9
+    saved = json.loads((out / "metrics.json").read_text())
+    assert {"low_confidence_rate", "macro_f1"} <= set(saved["val"]) & set(saved["test"])
 
 
 def test_convertible_vocabulary_drops_orphan_ngrams():

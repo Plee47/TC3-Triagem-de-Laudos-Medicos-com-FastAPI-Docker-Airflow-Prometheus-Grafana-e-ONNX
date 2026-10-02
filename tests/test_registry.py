@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +10,11 @@ GATE = {"min_macro_f1": 0.70, "min_urgente_recall": 0.75, "max_regression": 0.02
 
 
 def _metrics(f1: float, recall: float = 0.9) -> dict:
-    return {"test": {"macro_f1": f1, "urgente_recall": recall}}
+    # teste ruim de proposito: o gate decide so na validacao
+    return {
+        "val": {"macro_f1": f1, "urgente_recall": recall},
+        "test": {"macro_f1": 0.0, "urgente_recall": 0.0},
+    }
 
 
 def test_gate_approves_good_first_model():
@@ -20,7 +26,9 @@ def test_gate_approves_good_first_model():
     [
         (_metrics(0.60), None, "macro_f1"),
         (_metrics(0.78, recall=0.50), None, "urgente_recall"),
-        (_metrics(0.74), _metrics(0.78), "regrediu"),
+        (_metrics(0.74), _metrics(0.78), "macro_f1 0.740 regrediu"),
+        # recall de urgente acima do piso absoluto, mas caiu em relacao a producao
+        (_metrics(0.78, recall=0.80), _metrics(0.78, recall=0.86), "urgente_recall 0.800 regrediu"),
     ],
 )
 def test_gate_rejects(candidate, current, reason):
@@ -29,7 +37,7 @@ def test_gate_rejects(candidate, current, reason):
 
 
 def test_gate_tolerates_small_regression():
-    assert quality_gate(_metrics(0.77), _metrics(0.78), GATE) == []
+    assert quality_gate(_metrics(0.77, recall=0.89), _metrics(0.78), GATE) == []
 
 
 def test_promote_replaces_and_archives(tmp_path):
@@ -44,6 +52,37 @@ def test_promote_replaces_and_archives(tmp_path):
     assert read_metrics(prod) == {"v": 2}
     archived = list((prod / "archive").glob("*/metrics.json"))
     assert len(archived) == 1 and json.loads(archived[0].read_text()) == {"v": 1}
+
+
+def test_promote_failure_keeps_old_metrics_and_full_archive(tmp_path, monkeypatch):
+    from medical_triage.models import registry
+
+    prod, cand = tmp_path / "prod", tmp_path / "cand"
+    prod.mkdir()
+    cand.mkdir()
+    names = ["metrics.json", "model.joblib", "model.onnx"]
+    for name in names:
+        (prod / name).write_text(json.dumps({"v": 1}))
+        (cand / name).write_text(json.dumps({"v": 2}))
+
+    real_copy = shutil.copy2
+
+    def copy_failing_on_onnx(src, dst):
+        if Path(src) == cand / "model.onnx":
+            raise OSError("disco cheio")
+        return real_copy(src, dst)
+
+    # falha no meio da promocao: model.joblib ja foi trocado, model.onnx nao
+    monkeypatch.setattr(registry.shutil, "copy2", copy_failing_on_onnx)
+    with pytest.raises(OSError):
+        promote(cand, prod)
+
+    # metrics.json e trocado por ultimo, entao ainda descreve o modelo antigo
+    assert read_metrics(prod) == {"v": 1}
+    (archive,) = (prod / "archive").iterdir()
+    assert {p.name: json.loads(p.read_text()) for p in archive.iterdir()} == {
+        name: {"v": 1} for name in names
+    }
 
 
 def test_promote_empty_candidate_fails(tmp_path):

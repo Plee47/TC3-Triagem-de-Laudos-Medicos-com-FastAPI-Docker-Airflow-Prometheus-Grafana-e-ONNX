@@ -19,8 +19,9 @@ model:
   C: 1.0
   max_iter: 2000
 
-# Quality gate do retreino: o candidato so substitui o modelo em producao se
-# atingir os minimos absolutos e nao piorar mais que max_regression.
+# Quality gate do retreino, medido na validacao (o teste fica so para o numero
+# final): o candidato so substitui o modelo em producao se atingir os minimos
+# absolutos e nao piorar macro-F1 nem recall de urgente mais que max_regression.
 quality_gate:
   min_macro_f1: 0.70
   min_urgente_recall: 0.75

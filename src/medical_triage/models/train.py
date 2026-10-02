@@ -25,6 +25,10 @@ from medical_triage.triage import to_urgency
 
 logger = logging.getLogger(__name__)
 
+# mesmo corte do alerta TriageLowConfidenceSpike, que conta confianca <= 0.5 (le="0.5"):
+# o low_confidence_rate de val/test e o baseline desse alerta
+LOW_CONFIDENCE = 0.5
+
 
 def build_pipeline(params: dict[str, Any]) -> Pipeline:
     tfidf = params["tfidf"]
@@ -58,7 +62,7 @@ def convertible_vocabulary(vocabulary: dict[str, int]) -> list[str]:
 
     O corte de max_features pode manter um bigrama e descartar uma de suas
     palavras; o TfIdfVectorizer do ONNX Runtime nao casa esses bigramas (valem
-    0), o que quebra a paridade com o sklearn. Sao poucos (7 de ~37 mil).
+    0), o que quebra a paridade com o sklearn. Sao poucos (7 de ~37 mil bigramas).
     """
     return sorted(t for t in vocabulary if all(w in vocabulary for w in t.split(" ")))
 
@@ -80,6 +84,7 @@ def evaluate(pipeline: Pipeline, df: pd.DataFrame) -> dict[str, Any]:
     """Metricas na granularidade da doenca (5 classes) e da urgencia (3 niveis)."""
     y_true = df[LABEL_COL].to_numpy()
     y_pred = pipeline.predict(df[TEXT_COL])
+    confidence = pipeline.predict_proba(df[TEXT_COL]).max(axis=1)
     urg_true, urg_pred = to_urgency(y_true), to_urgency(y_pred)
     return {
         "n": int(len(df)),
@@ -90,6 +95,7 @@ def evaluate(pipeline: Pipeline, df: pd.DataFrame) -> dict[str, Any]:
         "urgente_recall": float(
             recall_score(urg_true, urg_pred, labels=["urgente"], average="macro", zero_division=0)
         ),
+        "low_confidence_rate": float((confidence <= LOW_CONFIDENCE).mean()),
         "per_class": classification_report(y_true, y_pred, output_dict=True, zero_division=0),
     }
 
