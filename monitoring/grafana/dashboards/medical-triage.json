@@ -154,8 +154,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Taxa de erro 5xx",
-      "description": "Erros de servidor sobre o total (5 min). Alerta acima de 5%.",
+      "title": "Taxa de erro 5xx /predict",
+      "description": "Erros de servidor sobre o total do /predict (5 min), mesmo recorte do alerta. Alerta acima de 5%.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -172,7 +172,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (sum(rate(http_requests_total{status=~\"5..\"}[5m])) or vector(0)) / sum(rate(http_requests_total[5m]))",
+          "expr": "100 * (sum(rate(http_requests_total{route=\"/predict\",status=~\"5..\"}[5m])) or vector(0)) / sum(rate(http_requests_total{route=\"/predict\"}[5m]))",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -863,7 +863,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "decimals": 0,
           "min": 0,
           "color": {
@@ -1037,7 +1037,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Predições com baixa confiança (< 0,5)",
-      "description": "Fração de predições em que a classe vencedora tem probabilidade < 0,5. Baseline medido nos conjuntos de validação/teste: ~50% (linha tracejada). Subida sustentada sugere drift nos laudos; alerta acima de 65% por 15 min.",
+      "description": "Fração de predições em que a classe vencedora tem probabilidade < 0,5. Baseline nos conjuntos de validação/teste: ~45-48% (low_confidence_rate em models/metrics.json, gravado pelo train.py). Subida sustentada sugere drift nos laudos; a linha tracejada é o limite do alerta (acima de 65% por 15 min).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

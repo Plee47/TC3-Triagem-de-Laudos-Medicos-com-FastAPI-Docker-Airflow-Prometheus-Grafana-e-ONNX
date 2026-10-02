@@ -10,6 +10,7 @@ para exercitar os paineis de erro. Elas ficam fora das estatisticas de latencia.
 import argparse
 import json
 import statistics
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -68,11 +69,17 @@ def main() -> None:
     invalid_every = round(1 / args.invalid_ratio) if args.invalid_ratio > 0 else 0
     if invalid_every:
         samples = ["" if i % invalid_every == 0 else t for i, t in enumerate(samples)]
-    pause = args.c / args.rate if args.rate else 0.0
+    # Cada worker agenda as requisicoes pelo relogio (next_due += interval), assim o tempo
+    # da propria requisicao nao se soma a pausa e a taxa real fica em --rate.
+    interval = args.c / args.rate if args.rate else 0.0
+    worker = threading.local()
 
     def send(text: str) -> tuple[float, int, bool]:
-        if pause:
-            time.sleep(pause)
+        if interval:
+            now = time.perf_counter()
+            next_due = getattr(worker, "next_due", now)
+            time.sleep(max(0.0, next_due - now))
+            worker.next_due = next_due + interval
         ms, status = post(args.url, text)
         return ms, status, text == ""
 

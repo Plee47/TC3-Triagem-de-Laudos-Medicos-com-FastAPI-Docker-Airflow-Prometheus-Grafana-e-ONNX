@@ -150,12 +150,13 @@ stat(
     decimals=1,
 )
 stat(
-    "Taxa de erro 5xx",
+    "Taxa de erro 5xx /predict",
     (8, 1, 4, 4),
-    '100 * (sum(rate(http_requests_total{status=~"5.."}[5m])) or vector(0)) '
-    "/ sum(rate(http_requests_total[5m]))",
+    "100 * (sum(rate(http_requests_total{" + PREDICT + ',status=~"5.."}[5m])) or vector(0)) '
+    "/ sum(rate(http_requests_total{" + PREDICT + "}[5m]))",
     "percent",
-    "Erros de servidor sobre o total (5 min). Alerta acima de 5%.",
+    "Erros de servidor sobre o total do /predict (5 min), mesmo recorte do alerta. "
+    "Alerta acima de 5%.",
     thresholds=[
         {"color": GOOD, "value": None},
         {"color": WARNING, "value": 1},
@@ -272,7 +273,7 @@ add(
         )
     ],
     "Quantos laudos o modelo classificou em cada nível de urgência.",
-    "short",
+    "none",
     URGENCY_COLORS,
     options={
         "orientation": "horizontal",
@@ -303,8 +304,9 @@ timeseries(
     ],
     "percent",
     "Fração de predições em que a classe vencedora tem probabilidade < 0,5. Baseline "
-    "medido nos conjuntos de validação/teste: ~50% (linha tracejada). Subida sustentada "
-    "sugere drift nos laudos; alerta acima de 65% por 15 min.",
+    "nos conjuntos de validação/teste: ~45-48% (low_confidence_rate em models/metrics.json, "
+    "gravado pelo train.py). Subida sustentada sugere drift nos laudos; a linha tracejada "
+    "é o limite do alerta (acima de 65% por 15 min).",
     [color_override("% baixa confiança", ACCENT)],
 )
 panels[-1]["fieldConfig"]["defaults"].update(
