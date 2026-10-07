@@ -21,8 +21,9 @@ def client_without_model(tmp_path, monkeypatch):
 
 
 def test_health(client):
-    body = client.get("/health").json()
-    assert body == {"status": "ok", "model_loaded": True, "model_backend": "sklearn"}
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "model_loaded": True, "model_backend": "sklearn"}
 
 
 def test_predict_returns_urgency(client):
@@ -41,5 +42,8 @@ def test_predict_validates_input(client, payload):
 
 
 def test_predict_without_model_is_503(client_without_model):
-    assert client_without_model.get("/health").json()["model_loaded"] is False
-    assert client_without_model.post("/predict", json={"text": "x"}).status_code == 503
+    health = client_without_model.get("/health")
+    assert health.status_code == 503
+    assert health.json()["model_loaded"] is False
+    resp = client_without_model.post("/predict", json={"text": "cardiac heart artery"})
+    assert resp.status_code == 503

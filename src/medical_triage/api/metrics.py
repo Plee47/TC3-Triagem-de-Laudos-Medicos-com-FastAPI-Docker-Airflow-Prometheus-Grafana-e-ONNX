@@ -12,7 +12,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Match
 
-# Buckets em segundos: a inferencia fica na casa de 1-30 ms.
+# Buckets HTTP em segundos. 0.2 e borda para o alerta de p95 > 200 ms ser exato.
 LATENCY_BUCKETS = (
     0.001,
     0.0025,
@@ -25,10 +25,29 @@ LATENCY_BUCKETS = (
     0.05,
     0.075,
     0.1,
+    0.2,
     0.25,
     0.5,
     1.0,
     2.5,
+)
+# Buckets da inferencia: fica na casa de 0.3-30 ms (ONNX abaixo de 1 ms), bordas finas ate 5 ms.
+INFERENCE_BUCKETS = (
+    0.00025,
+    0.0005,
+    0.00075,
+    0.001,
+    0.0015,
+    0.002,
+    0.0025,
+    0.003,
+    0.004,
+    0.005,
+    0.0075,
+    0.01,
+    0.02,
+    0.05,
+    0.1,
 )
 
 HTTP_REQUESTS = Counter(
@@ -46,7 +65,7 @@ INFERENCE_LATENCY = Histogram(
     "model_inference_duration_seconds",
     "Tempo de inferencia do modelo (sem overhead HTTP)",
     ["backend"],
-    buckets=LATENCY_BUCKETS,
+    buckets=INFERENCE_BUCKETS,
 )
 PREDICTIONS = Counter(
     "triage_predictions_total", "Predicoes por urgencia e condicao", ["urgency", "condition"]

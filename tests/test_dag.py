@@ -28,3 +28,5 @@ def test_dag_structure(dagbag):
     for upstream, downstream in zip(order, order[1:], strict=False):
         assert downstream in dag.get_task(upstream).downstream_task_ids
     assert dag.catchup is False
+    # nasce despausada: o `dags trigger` do README nao fica parado em queued
+    assert dag.is_paused_upon_creation is False

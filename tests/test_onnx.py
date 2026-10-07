@@ -9,12 +9,6 @@ from medical_triage.models.predictor import OnnxPredictor, SklearnPredictor, loa
 from medical_triage.models.train import train
 
 
-@pytest.fixture
-def onnx_model_dir(model_dir, tiny_df):
-    export(model_dir, tiny_df[TEXT_COL].tolist())
-    return model_dir
-
-
 def test_export_has_exact_parity(trained_pipeline, tiny_df):
     texts = tiny_df[TEXT_COL].tolist() + ["a b c", "Heart  and a  β-blocker in 2 cases"]
     parity = check_parity(trained_pipeline, convert(trained_pipeline), texts)
@@ -26,6 +20,23 @@ def test_export_refuses_sublinear_tf(tiny_df, test_params):
     params = {**test_params, "tfidf": {**test_params["tfidf"], "sublinear_tf": True}}
     with pytest.raises(ValueError, match="sublinear_tf"):
         convert(train(tiny_df, params))
+
+
+@pytest.mark.parametrize(
+    "parity",
+    [
+        {"label_agreement": 0.99, "max_abs_proba_diff": 0.0},
+        {"label_agreement": 1.0, "max_abs_proba_diff": 1e-2},
+    ],
+)
+def test_export_refuses_divergent_onnx(model_dir, tiny_df, monkeypatch, parity):
+    from medical_triage.models import export_onnx as export_mod
+
+    monkeypatch.setattr(export_mod, "check_parity", lambda *_args: {"n": 1, **parity})
+    with pytest.raises(ValueError, match="diverge"):
+        export(model_dir, tiny_df[TEXT_COL].tolist())
+    # sem paridade nao ha model.onnx, entao a DAG nao tem o que promover
+    assert not (model_dir / "model.onnx").exists()
 
 
 def test_onnx_predictor_matches_sklearn(onnx_model_dir):

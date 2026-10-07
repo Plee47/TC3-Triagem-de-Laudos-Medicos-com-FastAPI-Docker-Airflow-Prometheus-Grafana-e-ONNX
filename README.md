@@ -1,10 +1,10 @@
-# TC3 — Triagem de Laudos Médicos com FastAPI, Docker, Airflow, Prometheus/Grafana e ONNX
+# TC3: Triagem de Laudos Médicos com FastAPI, Docker, Airflow, Prometheus/Grafana e ONNX
 
 [![CI](https://github.com/Plee47/TC3-Triagem-de-Laudos-Medicos-com-FastAPI-Docker-Airflow-Prometheus-Grafana-e-ONNX/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Plee47/TC3-Triagem-de-Laudos-Medicos-com-FastAPI-Docker-Airflow-Prometheus-Grafana-e-ONNX/actions/workflows/ci.yml)
 
 Pipeline de MLOps para triagem automática de laudos médicos: um classificador de texto leve (TF-IDF + Regressão Logística) define a condição do laudo e a traduz em urgência (**normal / atenção / urgente**). O modelo é servido por uma API FastAPI em Docker, com CI/CD no GitHub Actions, retreino orquestrado pelo Airflow, observabilidade com Prometheus + Grafana e otimização de latência via ONNX Runtime.
 
-> Status: **as 4 etapas estão concluídas**: API em Docker, CI/CD, DAG de retreino, monitoramento e otimização com ONNX Runtime. Com o ONNX, a inferência ficou **~2,6x mais rápida** que com o sklearn, e as predições são idênticas.
+> Status: **as 4 etapas estão concluídas**: API em Docker, CI/CD (cada push na `main` publica no GHCR a imagem que passou no smoke test), DAG de retreino, monitoramento e otimização com ONNX Runtime. Com o ONNX, o modelo isolado ficou **~2x mais rápido** que com o sklearn (2,6x na média dentro do container), e as predições são idênticas.
 
 ## Sumário
 - [Dataset e premissas](#dataset-e-premissas)
@@ -37,14 +37,15 @@ Pipeline de MLOps para triagem automática de laudos médicos: um classificador 
 
 > ⚠️ Esse mapeamento é uma **premissa de negócio do projeto**, não um critério clínico validado. Em produção ele seria definido com a equipe médica; por estar em configuração, pode mudar sem retreinar o modelo.
 
-**Qualidade dos dados — o que encontramos e como tratamos:**
+**Qualidade dos dados (o que encontramos e como tratamos):**
 
 | Achado | Impacto | Tratamento |
 |---|---|---|
 | 1.956 abstracts do treino aparecem repetidos com **rótulos diferentes** (textos multi-condição) | rótulo ambíguo; deduplicar sem critério escolhe um rótulo arbitrário | cada texto fica com a condição **mais urgente** (conservador para triagem); empate → menor rótulo, que prefere uma condição específica à "general" |
+| 113 abstracts do teste também aparecem com mais de um rótulo | o mesmo texto contaria mais de uma vez na avaliação, com rótulos que se contradizem | mesma regra do treino: as 2.888 linhas do teste viram 2.770 textos únicos |
 | 988 abstracts do teste oficial **também estão no treino** | vazamento: a métrica de teste fica distorcida | esses textos são removidos do teste |
 
-Depois do tratamento: treino 8.028 · validação 1.417 (split estratificado) · teste 1.782.
+Depois do tratamento: treino 8.028 · validação 1.417 (split estratificado) · teste 1.782 (2.770 textos únicos menos os 988 vazados). O `preprocess` registra essas contagens no log e as devolve no resultado da task, que fica no XCom da DAG.
 
 ## Decisão arquitetural (nuvem)
 
@@ -69,7 +70,7 @@ Sistema do hospital (HIS/RIS) ──HTTPS──▶ API Gateway / ALB ──▶ E
 | Padrão de inferência | Real-time, síncrono | Triagem exige resposta imediata; o modelo responde em milissegundos |
 | Computação | **ECS Fargate** (container) | O mesmo Dockerfile do projeto roda sem mudança; autoescala por CPU e requisições; sem servidores para gerenciar. Lambda foi descartado por causa do cold start ao carregar o modelo; SageMaker Endpoint funciona, mas custa mais e acrescenta pouco para um modelo linear leve |
 | Artefatos | S3 (modelos versionados) + ECR (imagens) | Separa o ciclo do modelo do ciclo do código |
-| Retreino | MWAA (Airflow gerenciado) | É a mesma DAG usada localmente |
+| Retreino | MWAA (Airflow gerenciado) | A mesma DAG usada localmente, com `data/processed` e `models/` apontando para prefixos no S3, porque os workers do MWAA não compartilham disco local |
 | Observabilidade | Managed Prometheus + Managed Grafana | São as mesmas métricas e dashboards da stack local |
 | Segurança / LGPD | VPC privada, TLS, sem persistir o texto do laudo, logs sem PHI | Laudo é dado sensível de saúde |
 
@@ -119,7 +120,14 @@ curl -X POST https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/pr
 | Validação | 0,765 | 0,761 | 0,815 | 0,841 |
 | Teste (sem vazamento) | 0,786 | 0,782 | 0,824 | **0,858** |
 
-A classe mais difícil é *general pathological conditions* (F1 de 0,67): ela é genérica por definição e se sobrepõe às demais. As métricas completas, por classe, ficam em `models/metrics.json`, gerado no treino.
+A classe mais difícil é *general pathological conditions* (F1 de 0,67): ela é genérica por definição e se sobrepõe às demais. As métricas completas, por classe, ficam em `models/metrics.json`, gerado no treino, com uma cópia versionada em [`reports/metrics.json`](reports/metrics.json).
+
+### Limitações
+
+- O modelo foi treinado com abstracts médicos em inglês, e não com laudos reais. O cenário de triagem hospitalar é a motivação do projeto, não um uso validado.
+- Texto sem nenhuma palavra legível (só espaços, emoji, pontuação ou alfabeto não latino) ou sem nenhum termo do vocabulário do modelo recebe **422** no `/predict`, em vez de uma triagem. Um laudo em português cai aqui quando nenhuma das palavras dele está no vocabulário.
+- Texto em português ou fora do domínio que compartilha alguns termos com o vocabulário passa por essa checagem e ainda pode cair em "normal" com confiança baixa. É esse tipo de entrada que o alerta de baixa confiança acompanha, no agregado (veja [Monitoramento](#monitoramento-prometheus--grafana)).
+- Um uso real exigiria laudos rotulados em português e o mapeamento de urgência definido com a equipe médica.
 
 ## Latência: baseline e otimização com ONNX
 
@@ -129,11 +137,13 @@ A classe mais difícil é *general pathological conditions* (F1 de 0,67): ela é
 |---|---|---|---|
 | Só o modelo, in-process, p50 (`scripts/benchmark_latency.py`) | 1,19 ms | 0,57 ms | **2,1x** |
 | Só o modelo, no container, média (Prometheus, A/B) | 3,17 ms | 1,23 ms | **2,6x** |
-| Só o modelo, no container, p95 | 7,02 ms | 2,49 ms | **2,8x** |
+| Só o modelo, no container, p95 (aproximado, interpolado dos buckets) | 7,02 ms | 2,49 ms | **2,8x** |
 | HTTP `/predict` no servidor, p95 / p99 | 16,4 / 26,6 ms | 10,0 / 14,7 ms | **−39% / −45%** |
-| Tamanho do artefato | 3,5 MB | 2,6 MB | −27% |
+| Tamanho do artefato | 3,5 MB | 2,6 MB | −26% |
 
-**Paridade:** nos 1.782 laudos de teste, 100% dos rótulos são iguais e a diferença máxima de probabilidade é 2,6e-7. Para chegar nisso foi preciso corrigir quatro divergências do conversor: regex do tokenizer, `sublinear_tf`, bigramas órfãos e locale. O detalhamento está no [relatório](reports/latency.md#paridade-o-que-precisou-ser-corrigido). O `export_onnx` falha se a paridade quebrar, o que impede a promoção na DAG.
+Os percentis no container saíram de um histograma de inferência com bordas em 1 ms e 2,5 ms. O p95 do ONNX (2,49 ms) cai em cima da borda e diz só que ele ficou abaixo de 2,5 ms; a média vem da soma e da contagem do histograma e é exata. A API agora usa buckets próprios para a inferência, de 0,25 ms a 100 ms, para que as próximas rodadas meçam o ONNX com mais precisão.
+
+**Paridade:** nos 1.782 laudos de teste, 100% dos rótulos são iguais e a diferença máxima de probabilidade é 2,6e-7 (a concordância deixa de fora 1 texto com empate exato entre classes, `ties_excluded`). Esses números e as métricas da tabela de resultados estão em [`reports/metrics.json`](reports/metrics.json). Para chegar nisso foi preciso corrigir quatro divergências do conversor: regex do tokenizer, `sublinear_tf`, bigramas órfãos e locale. O detalhamento está no [relatório](reports/latency.md#paridade-o-que-precisou-ser-corrigido). O `export_onnx` falha se a paridade quebrar, o que impede a promoção na DAG.
 
 Em **lote** (64 laudos por chamada) o sklearn tem mais vazão, mas a triagem é real-time, com um laudo por requisição, e nesse caso o ONNX ganha.
 
@@ -153,8 +163,9 @@ Medido no cliente, o número inclui cerca de 10 ms de encaminhamento de porta do
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda a cada push na `main` e a cada pull request:
 
 ```
-lint ──┬──▶ test ─────────┬──▶ build
-       └──▶ dag-validate ─┘
+lint ──┬──▶ test ─────────┬──▶ build ──▶ push GHCR (só na main)
+       ├──▶ dag-validate ─┤
+       └──▶ monitoring ───┘
 ```
 
 | Job | O que faz |
@@ -162,11 +173,12 @@ lint ──┬──▶ test ─────────┬──▶ build
 | `lint` | `ruff check` e `ruff format --check` |
 | `test` | `pytest` com cobertura (dados, triagem, treino, registry, API) |
 | `dag-validate` | instala o Airflow 3.3.2 com as constraints oficiais, carrega a `DagBag` e confere as dependências entre as tasks |
-| `build` | treina com o dataset versionado, exporta para ONNX com checagem de paridade, aplica o quality gate, faz o `docker build` e sobe o container com **cada** backend (sklearn e ONNX) para um smoke test de `/health` e `/predict` |
+| `monitoring` | roda o `promtool check config` na mesma imagem do Prometheus do `docker-compose.yml`, o que valida também as regras de `alerts.yml`, e falha se o JSON do dashboard for diferente do gerado por `scripts/build_grafana_dashboard.py` |
+| `build` | treina com o dataset versionado, exporta para ONNX com checagem de paridade, aplica o quality gate, faz o `docker build` e sobe o container com **cada** backend (sklearn e ONNX) para um smoke test de `/health` e `/predict`. Num push na `main`, publica essa mesma imagem em `ghcr.io/plee47/medical-triage` com as tags `<sha>` e `latest`. Em pull request só valida |
 
 ## Retreino (Airflow)
 
-A DAG [`dags/medical_triage_retrain.py`](dags/medical_triage_retrain.py) roda toda semana (`@weekly`) ou quando é disparada manualmente:
+A DAG [`dags/medical_triage_retrain.py`](dags/medical_triage_retrain.py) roda toda semana (`@weekly`) ou quando é disparada manualmente. Ela já nasce despausada (`is_paused_upon_creation=False`), então a execução agendada mais recente (a do último domingo; com `catchup=False`, só ela) começa sozinha logo depois do `up`. Como os CSVs de `data/raw/` são versionados, o agendamento semanal é demonstrativo: sem dados novos, o retreino reproduz o mesmo modelo, e um modelo novo só aparece quando os dados mudam.
 
 ```
 ingest ──▶ preprocess ──▶ train_candidate ──▶ export_onnx ──▶ quality_gate ──▶ promote
@@ -176,23 +188,27 @@ ingest ──▶ preprocess ──▶ train_candidate ──▶ export_onnx ─�
 - **preprocess**: limpa o texto, resolve rótulos multi-condição, faz o split e remove o vazamento do teste.
 - **train_candidate**: treina em `models/candidate/`, sem mexer no modelo em produção.
 - **export_onnx**: gera o `model.onnx` do candidato e falha se ele divergir do sklearn.
-- **quality_gate**: aprova o candidato só se ele atingir macro-F1 ≥ 0,70 e recall de "urgente" ≥ 0,75 e não piorar o macro-F1 atual em mais de 0,02. Os limites ficam em [`params.yaml`](params.yaml). Se o candidato for reprovado, a task faz *short-circuit* e o `promote` fica como **skipped**.
-- **promote**: arquiva a versão atual em `models/archive/<timestamp>/` e troca os artefatos de forma atômica.
+- **quality_gate**: decide na **validação**. Aprova o candidato só se ele atingir macro-F1 ≥ 0,70 e recall de "urgente" ≥ 0,75 e não piorar nem o macro-F1 nem o recall de "urgente" do modelo em produção em mais de 0,02 (`max_regression`). O teste fica só para o número final reportado. Os limites ficam em [`params.yaml`](params.yaml). Se o candidato for reprovado, a task faz *short-circuit* e o `promote` fica como **skipped**.
+- **promote**: antes de trocar qualquer arquivo, arquiva o conjunto atual inteiro (`model.joblib`, `model.onnx` e `metrics.json`) em `models/archive/<timestamp>/`. Depois troca um arquivo por vez, cada um por cópia temporária + rename, com o `metrics.json` por último: se a promoção parar no meio, ele ainda descreve o modelo antigo. Cada arquivo é trocado de forma atômica, o conjunto não.
 
 As tasks só orquestram. Toda a lógica está em `medical_triage.*` e é testada sem precisar do Airflow.
 
-A DAG foi validada ponta a ponta no Airflow 3.3.2 em Docker (Linux): as 6 tasks terminaram com sucesso, o modelo foi aprovado (macro-F1 0,782) e o `model.onnx` foi promovido junto com o `model.joblib`. Com o limite elevado de propósito para 0,99, o gate reprovou o candidato e o `promote` ficou como skipped.
+A DAG foi validada ponta a ponta no Airflow 3.3.2 em Docker (Linux) quando o gate ainda media no teste: as 6 tasks terminaram com sucesso, o modelo foi aprovado (macro-F1 0,782) e o `model.onnx` foi promovido junto com o `model.joblib`. Com o limite elevado de propósito para 0,99, o gate reprovou o candidato e o `promote` ficou como skipped. Essa rodada no Docker não foi repetida depois que o gate passou a medir na validação: a nova regra é coberta pelos testes do `registry`, e os números de validação em [`reports/metrics.json`](reports/metrics.json) (macro-F1 0,761 e recall de "urgente" 0,841) passam nos limites.
 
 ```bash
+# só no Linux, antes do primeiro up: o container usa o seu UID para escrever em data/ e models/
+echo "AIRFLOW_UID=$(id -u)" >> .env
 docker compose -f docker-compose.airflow.yml up -d --build
 # UI em http://localhost:8081 (login desabilitado, apenas para uso local)
+# a primeira execução começa sozinha; o trigger roda o retreino de novo (entra na fila atrás dela)
+# espere a DAG aparecer em `airflow dags list` antes do trigger
 docker compose -f docker-compose.airflow.yml exec airflow airflow dags trigger medical_triage_retrain
 ```
 
 ## Monitoramento (Prometheus + Grafana)
 
 ```bash
-docker compose up -d --build        # API + Prometheus + Grafana (treine o modelo antes)
+docker compose up -d --build        # API + Prometheus + Grafana (treine o modelo antes, senão o build falha)
 poetry run python scripts/load_test.py -n 2400 -c 2 --rate 8 --invalid-ratio 0.05   # gera tráfego
 ```
 
@@ -208,9 +224,9 @@ poetry run python scripts/load_test.py -n 2400 -c 2 --rate 8 --invalid-ratio 0.0
 | Métrica | Tipo | Para quê |
 |---|---|---|
 | `http_requests_total{method,route,status}` | Counter | volume de requisições e taxa de erro |
-| `http_request_duration_seconds{method,route}` | Histogram | latência HTTP de ponta a ponta (p50/p95/p99) |
+| `http_request_duration_seconds{method,route}` | Histogram | latência HTTP de ponta a ponta (p50/p95/p99); tem um bucket em 0,2 s, a borda exata do alerta de p95 |
 | `http_requests_in_progress` | Gauge | concorrência |
-| `model_inference_duration_seconds{backend}` | Histogram | latência só do modelo, para comparar sklearn e ONNX |
+| `model_inference_duration_seconds{backend}` | Histogram | latência só do modelo, para comparar sklearn e ONNX (buckets próprios, de 0,25 ms a 100 ms) |
 | `triage_predictions_total{urgency,condition}` | Counter | distribuição das predições |
 | `triage_prediction_confidence` | Histogram | confiança do modelo, como sinal de drift |
 | `triage_model_info{backend,trained_at,test_macro_f1}`, `triage_model_loaded` | Gauge | qual modelo está servindo |
@@ -219,15 +235,15 @@ poetry run python scripts/load_test.py -n 2400 -c 2 --rate 8 --invalid-ratio 0.0
 
 ![Dashboard Grafana](reports/img/grafana-dashboard.png)
 
-*Print com cerca de 5 min de carga a 8 req/s, com 5% de requisições inválidas de propósito (viram os 422 do painel de erro). O pico de p99 perto das 16:03 aconteceu durante um restart do Grafana e do Prometheus.*
+*Print tirado na Etapa 3, ainda com o modelo sklearn daquela fase (F1 0,777 no painel "Modelo em produção"), com cerca de 5 min de carga (`--rate 8`) e 5% de requisições inválidas de propósito (viram os 422 do painel de erro). O pico de p99 perto das 16:03 aconteceu durante um restart do Grafana e do Prometheus. Depois do print, o painel "Taxa de erro 5xx" passou a olhar só o `/predict`, o mesmo recorte do alerta.*
 
-**Alertas** ([`alerts.yml`](monitoring/prometheus/alerts.yml)): API fora do ar; modelo não carregado; mais de 5% de erros 5xx no `/predict`; p95 acima de 200 ms; e mais de 65% das predições com confiança abaixo de 0,5. Esse último limite foi calibrado: o baseline medido nos conjuntos de validação e teste é de cerca de 50%, então o alerta dispara quando a fração passa uns 15 p.p. disso por 15 min, o que indica possível drift nos laudos.
+**Alertas** ([`alerts.yml`](monitoring/prometheus/alerts.yml)): API fora do ar; modelo não carregado; mais de 5% de erros 5xx no `/predict`; p95 acima de 200 ms; e mais de 65% das predições com confiança abaixo de 0,5. Esse último limite foi calibrado sobre o baseline que o treino grava em `models/metrics.json` como `low_confidence_rate`: 0,4545 na validação e 0,4837 no teste (cópia versionada em [`reports/metrics.json`](reports/metrics.json)). O alerta dispara quando a fração fica acima de 65% por 15 min, bem acima desse baseline, o que indica possível drift nos laudos.
 
 > Depois de uma promoção feita pela DAG, `docker compose restart api` carrega o novo modelo. O diretório `models/` fica montado como somente leitura no container.
 
 ## Como executar
 
-Pré-requisitos: Python 3.11+, [Poetry](https://python-poetry.org/) 2.x e Docker.
+Pré-requisitos: Python 3.11+, [Poetry](https://python-poetry.org/) 2.2+ (o CI usa 2.4.1) e Docker.
 
 ```bash
 poetry install
@@ -242,15 +258,16 @@ poetry run python -m medical_triage.models.export_onnx
 poetry run pytest
 poetry run ruff check . && poetry run ruff format --check .
 
-# API local
+# API local (sem .env o backend padrão é sklearn; com o .env.example copiado para .env,
+# ou MODEL_BACKEND=onnx no ambiente, usa o ONNX, o mesmo da imagem)
 poetry run uvicorn medical_triage.api.main:app --reload --port 8080
 
-# API em Docker (o modelo precisa estar treinado antes do build)
+# API em Docker (o modelo precisa estar treinado antes: sem model.onnx e model.joblib o build falha)
 docker build -t medical-triage .
 docker run -d --name triage-api -p 8080:8000 medical-triage
 
 # latência: modelo isolado (sklearn vs ONNX) e ponta a ponta via HTTP
-poetry run python scripts/benchmark_latency.py
+poetry run python scripts/benchmark_latency.py   # só imprime; --out reports/benchmark_inprocess.json regrava o relatório
 poetry run python scripts/load_test.py --url http://localhost:8080 -n 500 -c 1
 ```
 
@@ -270,16 +287,18 @@ curl -X POST localhost:8080/predict -H "Content-Type: application/json" \
   "condition_label": 4,
   "condition": "cardiovascular_diseases",
   "urgency": "urgente",
-  "confidence": 0.9844,
-  "probabilities": {"neoplasms": 0.0016, "digestive_system_diseases": 0.0016,
-                    "nervous_system_diseases": 0.0056, "cardiovascular_diseases": 0.9844,
-                    "general_pathological_conditions": 0.0067},
+  "confidence": 0.9802,
+  "probabilities": {"neoplasms": 0.0018, "digestive_system_diseases": 0.0029,
+                    "nervous_system_diseases": 0.0059, "cardiovascular_diseases": 0.9802,
+                    "general_pathological_conditions": 0.0091},
   "model_backend": "onnx",
-  "inference_ms": 0.884
+  "inference_ms": 0.334
 }
 ```
 
-`GET /health` informa se a API está no ar, se o modelo foi carregado e qual backend está em uso. `GET /metrics` expõe as métricas no formato Prometheus. A documentação interativa fica em `/docs`. Para trocar de backend, use `MODEL_BACKEND=sklearn|onnx` (o padrão da imagem é `onnx`).
+O texto precisa estar em inglês. O `/predict` responde **422** quando o texto não tem nenhuma palavra legível (só espaços, emoji, pontuação ou alfabeto não latino), com o erro de validação padrão do pydantic no campo `text` (`msg`: `Value error, texto sem nenhuma palavra legivel (o modelo le texto em ingles)`), e quando nenhum termo está no vocabulário do modelo, com `{"detail": "Nenhum termo conhecido pelo modelo"}`. Sem modelo carregado, responde 503.
+
+`GET /health` informa se a API está no ar, se o modelo foi carregado e qual backend está em uso. Sem modelo, responde **503** com `{"status": "indisponivel", "model_loaded": false, ...}`, o que deixa o container *unhealthy* no `HEALTHCHECK`. `GET /metrics` expõe as métricas no formato Prometheus. A documentação interativa fica em `/docs`. Para trocar de backend, use `MODEL_BACKEND=sklearn|onnx` (o padrão da imagem é `onnx`; rodando local sem `.env`, é `sklearn`).
 
 ## Estrutura do repositório
 
@@ -296,19 +315,19 @@ src/medical_triage/
   api/                 FastAPI (schemas, endpoints, métricas Prometheus)
 dags/                  DAG de retreino do Airflow
 docker/airflow/        imagem do Airflow com as libs de ML fixadas no lock
-.github/workflows/     CI (lint, test, dag-validate, build)
+.github/workflows/     CI (lint, test, dag-validate, monitoring, build) e push da imagem
 configs/urgency_map.yaml
 params.yaml            hiperparâmetros + limites do quality gate
 scripts/               carga/latência e gerador do dashboard Grafana
 monitoring/            Prometheus (scrape + alertas) e Grafana (provisionamento + dashboard)
 docker-compose.yml     API + Prometheus + Grafana
 tests/                 pytest (dados, triagem, treino, ONNX, registry, API, métricas, DAG)
-reports/               benchmarks de latência (latency.md) e prints do Grafana
+reports/               benchmarks de latência (latency.md), cópia das métricas do treino (metrics.json) e prints do Grafana
 ```
 
 ## Time
 
-Tech Challenge Fase 3 — POSTECH 10MLET.
+Tech Challenge Fase 3, POSTECH 10MLET.
 
 ### Equipe e Responsabilidades
 

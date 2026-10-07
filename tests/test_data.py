@@ -113,6 +113,47 @@ def test_run_uses_local_files_without_network(tmp_path, monkeypatch):
     assert len(train) == len(test) == ingest.MIN_ROWS
 
 
+def test_preprocess_run_splits_are_disjoint_and_leak_free(tmp_path, monkeypatch):
+    from medical_triage.config import get_settings
+    from medical_triage.data import preprocess
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    words = {1: "tumor", 2: "liver", 3: "brain", 4: "cardiac", 5: "syndrome"}
+    base = [(label, f"{w} abstract {i}") for label, w in words.items() for i in range(10)]
+    # mesmo texto com rotulos 1 e 4 (difere so no espaco) e um texto que fica vazio
+    train_rows = base + [(1, "shared  abstract"), (4, "shared abstract"), (2, "心肌梗死")]
+    test_rows = [(label, f"{w} test {i}") for label, w in words.items() for i in range(2)]
+    # o teste repete todo o treino com espacos a mais: depois da limpeza e vazamento,
+    # e tem que sair mesmo o que cair na validacao
+    test_rows += [(label, f"  {text.replace(' ', '   ')} ") for label, text in base]
+    for name, rows in {
+        "medical_tc_train.csv": train_rows,
+        "medical_tc_test.csv": test_rows,
+    }.items():
+        pd.DataFrame(rows, columns=[LABEL_COL, TEXT_COL]).to_csv(raw / name, index=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    try:
+        counts = preprocess.run()
+    finally:
+        get_settings.cache_clear()
+
+    splits = {n: pd.read_csv(tmp_path / "processed" / f"{n}.csv") for n in ("train", "val", "test")}
+    texts = {n: set(df[TEXT_COL]) for n, df in splits.items()}
+    assert not texts["train"] & texts["val"]
+    assert not texts["train"] & texts["test"]
+    assert not texts["val"] & texts["test"]
+    full_train = pd.concat([splits["train"], splits["val"]])
+    assert full_train.loc[full_train[TEXT_COL] == "shared abstract", LABEL_COL].tolist() == [4]
+    assert "cardiac abstract 3" not in texts["test"]
+    assert counts["test"] == len(splits["test"]) == 10
+    assert counts["train_multilabel_texts"] == counts["train_duplicate_rows_dropped"] == 1
+    assert counts["train_empty_dropped"] == 1
+    assert counts["test_overlap_dropped"] == len(base)
+    assert all(type(v) is int for v in counts.values())  # vai para o XCom da DAG
+
+
 def test_missing_local_files_explain_how_to_restore(tmp_path):
     from medical_triage.data.ingest import check_local_files
 

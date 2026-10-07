@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     data_dir: Path = PROJECT_ROOT / "data"
     configs_dir: Path = PROJECT_ROOT / "configs"
     params_path: Path = PROJECT_ROOT / "params.yaml"
+    log_level: str = "info"
 
     @property
     def raw_dir(self) -> Path:

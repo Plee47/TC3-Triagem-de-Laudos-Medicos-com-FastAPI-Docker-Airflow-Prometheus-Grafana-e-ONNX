@@ -4,6 +4,7 @@ Mede so o predict_proba (inclui clean_text), sem HTTP, com laudos reais do
 conjunto de teste. A comparacao ponta a ponta via API fica com load_test.py.
 
 Uso: python scripts/benchmark_latency.py [-n 2000] [--out reports/benchmark_inprocess.json]
+Sem --out o resultado so e impresso (nao sobrescreve o JSON versionado em reports/).
 """
 
 import argparse
@@ -17,8 +18,6 @@ import pandas as pd
 
 from medical_triage.config import get_settings
 from medical_triage.models.predictor import OnnxPredictor, SklearnPredictor
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def time_single(predict, texts: list[str], warmup: int) -> list[float]:
@@ -58,7 +57,7 @@ def main() -> None:
     parser.add_argument("-n", type=int, default=2000)
     parser.add_argument("--warmup", type=int, default=100)
     parser.add_argument("--batch", type=int, default=64)
-    parser.add_argument("--out", type=Path, default=ROOT / "reports" / "benchmark_inprocess.json")
+    parser.add_argument("--out", type=Path, help="salva o resultado em JSON")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -93,8 +92,9 @@ def main() -> None:
     results["config"] = {"n": args.n, "warmup": args.warmup, "batch": args.batch}
 
     print(json.dumps(results, indent=2))
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

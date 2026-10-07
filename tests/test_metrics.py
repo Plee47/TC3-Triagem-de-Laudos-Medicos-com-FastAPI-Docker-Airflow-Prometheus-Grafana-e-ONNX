@@ -49,6 +49,17 @@ def test_predict_updates_request_and_model_metrics(client):
     )
 
 
+def test_latency_buckets_cover_alert_and_submillisecond_inference(client):
+    client.post("/predict", json={"text": "cardiac heart artery myocardial"})
+    # 0.2 precisa ser borda para o alerta de p95 > 200 ms nao interpolar dentro de um bucket
+    http = {"method": "POST", "route": "/predict", "le": "0.2"}
+    assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", http) is not None
+    inference = {"backend": "sklearn", "le": "0.0005"}
+    assert (
+        REGISTRY.get_sample_value("model_inference_duration_seconds_bucket", inference) is not None
+    )
+
+
 def test_client_errors_are_counted_with_status(client):
     labels = {"method": "POST", "route": "/predict", "status": "422"}
     before = _value("http_requests_total", labels)

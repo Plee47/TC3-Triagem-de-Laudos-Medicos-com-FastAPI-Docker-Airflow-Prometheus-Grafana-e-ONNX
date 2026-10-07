@@ -4,9 +4,10 @@ ingest -> preprocess -> train_candidate -> export_onnx -> quality_gate -> promot
 
 A logica fica em medical_triage.* (testavel sem Airflow); a DAG so orquestra.
 O candidato e treinado em models/candidate e so substitui o modelo em
-producao se passar no quality gate (params.yaml > quality_gate). Reprovado,
-o gate faz short-circuit e a promocao fica como "skipped". O export_onnx falha
-a DAG se o ONNX divergir do sklearn: nada e promovido sem paridade.
+producao se passar no quality gate, medido na validacao (params.yaml >
+quality_gate). Reprovado, o gate faz short-circuit e a promocao fica como
+"skipped". O export_onnx falha a DAG se o ONNX divergir do sklearn: nada e
+promovido sem paridade.
 """
 
 from datetime import datetime, timedelta
@@ -27,6 +28,8 @@ default_args = {
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
+    # o padrao do Airflow 3 cria a DAG pausada e o `dags trigger` da CLI fica em queued
+    is_paused_upon_creation=False,
     default_args=default_args,
     params={"download": False},
     tags=["medical-triage", "training"],
@@ -52,7 +55,8 @@ def medical_triage_retrain():
         from medical_triage.models import train as train_mod
 
         metrics = train_mod.run(output_dir=get_settings().candidate_dir)
-        return {k: v for k, v in metrics["test"].items() if isinstance(v, float)}
+        # metricas de validacao: sao elas que o quality gate usa
+        return {k: v for k, v in metrics["val"].items() if isinstance(v, float)}
 
     @task
     def export_onnx(candidate_summary: dict[str, float]) -> dict[str, float]:
@@ -80,7 +84,7 @@ def medical_triage_retrain():
         if failures:
             log.warning("Candidato reprovado: %s", "; ".join(failures))
             return False
-        log.info("Candidato aprovado: %s", candidate_summary)
+        log.info("Candidato aprovado (validacao): %s", candidate_summary)
         return True
 
     @task
