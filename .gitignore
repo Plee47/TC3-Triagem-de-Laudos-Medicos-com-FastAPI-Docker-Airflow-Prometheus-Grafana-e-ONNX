@@ -17,6 +17,9 @@ models/*.onnx
 models/metrics.json
 models/candidate/
 models/archive/
+# modelo em producao versionado para quem clonar conseguir subir a API sem treinar
+!models/model.joblib
+!models/model.onnx
 
 # Tooling
 .vscode/
