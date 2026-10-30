@@ -78,7 +78,7 @@ Sistema do hospital (HIS/RIS) ──HTTPS──▶ API Gateway / ALB ──▶ E
 
 ## Deploy na AWS
 
-A API está publicada na AWS (região `us-east-2`). A imagem Docker do projeto fica no **ECR** e roda no **ECS Express**, que provisiona o serviço Fargate com um **ALB** na frente:
+A API está publicada na AWS (região `us-east-1`). A imagem Docker do projeto fica no **ECR** e roda no **ECS Express**, que provisiona o serviço Fargate com um **ALB** na frente:
 
 ```
                     AWS
@@ -101,12 +101,12 @@ A API está publicada na AWS (região `us-east-2`). A imagem Docker do projeto f
 
 | Recurso | URL |
 |---|---|
-| API (Swagger) | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/docs |
-| Métricas (Prometheus) | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/metrics |
-| Health check | https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/health |
+| API (Swagger) | https://tr-0faeb77bf63740a4a82f286c68b01d58.ecs.us-east-1.on.aws/docs |
+| Métricas (Prometheus) | https://tr-0faeb77bf63740a4a82f286c68b01d58.ecs.us-east-1.on.aws/metrics |
+| Health check | https://tr-0faeb77bf63740a4a82f286c68b01d58.ecs.us-east-1.on.aws/health |
 
 ```bash
-curl -X POST https://me-b245f687784748fa8d5e31aef7e34538.ecs.us-east-2.on.aws/predict \
+curl -X POST https://tr-0faeb77bf63740a4a82f286c68b01d58.ecs.us-east-1.on.aws/predict \
   -H "Content-Type: application/json" \
   -d '{"text": "Acute myocardial infarction in patients with coronary artery disease..."}'
 ```
